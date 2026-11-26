@@ -147,6 +147,13 @@ export async function fileUrl(id) {
   return url;
 }
 
+/** Devuelve el contenido (Blob) de un archivo, descargándolo del servidor si hace falta. */
+export async function fileBlob(id) {
+  if (!id) return null;
+  if (!(await fileUrl(id))) return null;
+  return (await db.get('files', id))?.blob || null;
+}
+
 export function forgetFileUrl(id) {
   if (urlCache.has(id)) {
     URL.revokeObjectURL(urlCache.get(id));
@@ -316,7 +323,7 @@ export async function importProject(backup) {
   }
   for (const m of backup.members || []) await db.put('members', { ...m, id: remap(m.id), projectId: pid });
   for (const s of backup.sheets || []) {
-    await db.put('sheets', { ...s, id: remap(s.id), projectId: pid, fileId: remap(s.fileId), thumbId: remap(s.thumbId) });
+    await db.put('sheets', { ...s, id: remap(s.id), projectId: pid, fileId: remap(s.fileId), thumbId: remap(s.thumbId), pdfFileId: remap(s.pdfFileId) });
   }
   for (const t of backup.tasks || []) {
     await db.put('tasks', {

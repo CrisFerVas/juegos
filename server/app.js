@@ -15,7 +15,7 @@ const MIME = {
 };
 const SESSION_TTL = 30 * 86400000;
 const MAX_JSON = 25 * 1024 * 1024;
-const MAX_FILE = 60 * 1024 * 1024;
+const MAX_FILE = 500 * 1024 * 1024; // planos PDF de gran formato
 const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -133,6 +133,37 @@ export function createApp({ dataDir, log = () => {} }) {
     role === 'admin' || (role === 'miembro' && store !== 'projects');
 
   // ---------- Archivos ----------
+  /** Guarda la subida directamente en disco (sin cargarla en memoria) y la mueve a su sitio al terminar. */
+  function saveUpload(req, dest) {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    const tmp = `${dest}.${crypto.randomBytes(6).toString('hex')}.part`;
+    return new Promise((resolve, reject) => {
+      let size = 0;
+      const out = fs.createWriteStream(tmp);
+      const fail = (err) => {
+        out.destroy();
+        fs.rmSync(tmp, { force: true });
+        reject(err);
+      };
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > MAX_FILE) {
+          req.unpipe(out);
+          req.resume();
+          fail(new HttpError(413, 'El archivo supera el tamaño máximo (500 MB)'));
+        }
+      });
+      req.on('error', fail);
+      out.on('error', fail);
+      out.on('finish', () => {
+        if (size > MAX_FILE) return;
+        fs.renameSync(tmp, dest);
+        resolve(size);
+      });
+      req.pipe(out);
+    });
+  }
+
   const filePath = (projectId, id) => path.join(dataDir, 'files', projectId, id);
   function removeProjectFiles(projectId) {
     fs.rmSync(path.join(dataDir, 'files', projectId), { recursive: true, force: true });
@@ -317,10 +348,8 @@ export function createApp({ dataDir, log = () => {} }) {
         if (!canWrite(role, 'files')) throw new HttpError(403, 'No tienes permiso para subir archivos');
         const existing = q.doc.get('files', id);
         if (existing && existing.project_id !== projectId) throw new HttpError(409, 'Conflicto de identificador');
-        const buf = await readBody(req, MAX_FILE);
-        fs.mkdirSync(path.dirname(filePath(projectId, id)), { recursive: true });
-        fs.writeFileSync(filePath(projectId, id), buf);
-        return send(res, 200, { ok: true, size: buf.length });
+        const size = await saveUpload(req, filePath(projectId, id));
+        return send(res, 200, { ok: true, size });
       }
       if (method === 'GET') {
         const d = q.doc.get('files', id);

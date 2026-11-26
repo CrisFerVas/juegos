@@ -4,7 +4,7 @@ const PDFJS_VERSION = '3.11.174';
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
 let pdfjsPromise;
 
-function loadPdfJs() {
+export function loadPdfJs() {
   if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
   if (pdfjsPromise) return pdfjsPromise;
   pdfjsPromise = new Promise((resolve, reject) => {
@@ -61,48 +61,69 @@ export async function resizeImage(blob, max = 1600, type = 'image/jpeg', quality
   return { blob: await canvasToBlob(c, type, quality), width: w, height: h };
 }
 
+// Límite de píxeles del raster base: los navegadores móviles (iOS) no admiten lienzos mayores de ~16,7 Mpx.
+const MAX_RASTER_PIXELS = 16_000_000;
+const MAX_RASTER_SIDE = 8192;
+
+/** Miniatura JPEG dibujada directamente desde un lienzo o imagen ya cargados. */
+async function thumbFrom(source, w, h, max = 480) {
+  const k = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * k);
+  c.height = Math.round(h * k);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, c.width, c.height);
+  return canvasToBlob(c, 'image/jpeg', 0.85);
+}
+
 /**
- * Convierte un archivo de plano en una lista de hojas rasterizadas.
- * Devuelve [{ name, blob, thumb, width, height }]
+ * Convierte un archivo de plano en una lista de hojas.
+ * - PDF: se conserva el PDF original (para redibujar en vectorial al hacer zoom) y se genera
+ *   por página una imagen base sin pérdida (PNG) de la mayor resolución que admite el navegador.
+ * - Imagen: se conserva el archivo original sin recomprimir.
+ * Devuelve { pdf?: Blob, sheets: [{ name, blob, thumb, width, height, pdfPage? }] }
  */
 export async function fileToSheets(file, onProgress = () => {}) {
   const base = file.name.replace(/\.[^.]+$/, '');
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
     const pdfjs = await loadPdfJs();
     const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
-    const out = [];
+    const sheets = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       onProgress(i, pdf.numPages);
       const page = await pdf.getPage(i);
       const vp1 = page.getViewport({ scale: 1 });
-      // Resolución objetivo: lado mayor ~4000px (suficiente para hacer zoom en detalles).
-      const scale = Math.min(4, 4000 / Math.max(vp1.width, vp1.height));
+      const scale = Math.min(
+        MAX_RASTER_SIDE / Math.max(vp1.width, vp1.height),
+        Math.sqrt(MAX_RASTER_PIXELS / (vp1.width * vp1.height)),
+        6
+      );
       const vp = page.getViewport({ scale });
       const c = document.createElement('canvas');
-      c.width = Math.round(vp.width);
-      c.height = Math.round(vp.height);
+      c.width = Math.floor(vp.width);
+      c.height = Math.floor(vp.height);
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, c.width, c.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
-      const blob = await canvasToBlob(c, 'image/jpeg', 0.88);
-      const thumb = (await resizeImage(blob, 480)).blob;
-      out.push({
-        name: pdf.numPages > 1 ? `${base} – pág. ${i}` : base,
-        blob,
-        thumb,
-        width: c.width,
-        height: c.height,
-      });
+      const blob = await canvasToBlob(c, 'image/png');
+      const thumb = await thumbFrom(c, c.width, c.height);
+      sheets.push({ name: pdf.numPages > 1 ? `${base} – pág. ${i}` : base, blob, thumb, width: c.width, height: c.height, pdfPage: i });
       c.width = c.height = 0;
+      page.cleanup();
     }
-    return out;
+    await pdf.destroy();
+    return { pdf: file, sheets };
   }
   if (file.type.startsWith('image/')) {
     onProgress(1, 1);
-    const full = await resizeImage(file, 5000, 'image/jpeg', 0.9);
-    const thumb = (await resizeImage(file, 480)).blob;
-    return [{ name: base, blob: full.blob, thumb, width: full.width, height: full.height }];
+    const img = await loadImage(file);
+    const thumb = await thumbFrom(img, img.naturalWidth, img.naturalHeight);
+    // Se guarda el archivo original tal cual: sin reducir ni recomprimir.
+    return { sheets: [{ name: base, blob: file, thumb, width: img.naturalWidth, height: img.naturalHeight }] };
   }
   throw new Error(`Formato no soportado: ${file.name}`);
 }

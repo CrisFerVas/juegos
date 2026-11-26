@@ -2,9 +2,9 @@ import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue } from '../db.js';
 import { esc, toast, avatar, fmtDate, userName } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
+import { createPdfLayer } from '../hires.js';
 
 const MIN_SCALE = 0.05;
-const MAX_SCALE = 8;
 const TAP_TOLERANCE = 6;
 
 export async function renderViewer(view, ctx, sheetId, params) {
@@ -15,6 +15,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
   }
   const src = await fileUrl(sheet.fileId);
   const W = sheet.width, H = sheet.height;
+  // Zoom máximo (píxeles de pantalla por píxel de la imagen base). En PDF se redibuja en vectorial,
+  // así que se puede ampliar mucho más sin perder nitidez.
+  const MAX_SCALE = sheet.pdfFileId ? 16 : 6;
 
   const state = {
     scale: 1, tx: 0, ty: 0,
@@ -65,8 +68,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const sheetTasks = () => ctx.tasks.filter((t) => t.sheetId === sheet.id && t.x != null);
 
   // ---------- Transformación ----------
+  let pdfLayer = null;
   const apply = () => {
     stage.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+    pdfLayer?.schedule();
     stage.style.setProperty('--inv', 1 / state.scale);
   };
   const fit = () => {
@@ -315,6 +320,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
     }
     lastSize = { width, height };
   }).observe(canvas);
+
+  // Redibujado nítido desde el PDF original al hacer zoom
+  pdfLayer = createPdfLayer({ sheet, stage, container: canvas, getState: () => state });
 
   // ---------- Estado inicial ----------
   drawPins();

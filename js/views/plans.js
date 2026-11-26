@@ -93,7 +93,7 @@ function uploadDialog(ctx, files) {
     body: `
       <p class="muted small">${files.map((f) => esc(f.name)).join('<br>')}</p>
       <label class="field"><span>Carpeta / disciplina</span>${folderSelect('Arquitectura')}</label>
-      <p class="muted small">Cada página de un PDF se convierte en un plano independiente.</p>
+      <p class="muted small">Cada página de un PDF se convierte en un plano independiente. Se conserva el archivo original para verlo con toda su calidad al hacer zoom.</p>
       <div id="up-status" class="muted small"></div>`,
     submitLabel: 'Subir',
     onSubmit: async (v, form) => {
@@ -102,7 +102,10 @@ function uploadDialog(ctx, files) {
       let count = 0;
       for (const file of files) {
         try {
-          const pages = await fileToSheets(file, (i, n) => (status.textContent = `Procesando ${file.name}: página ${i} de ${n}...`));
+          const { pdf, sheets: pages } = await fileToSheets(file, (i, n) => (status.textContent = `Procesando ${file.name}: página ${i} de ${n}...`));
+          status.textContent = `Guardando ${file.name}...`;
+          // El PDF original se guarda una vez y lo comparten todas sus páginas.
+          const pdfFileId = pdf ? await saveFile(ctx.project.id, pdf, file.name) : '';
           for (const p of pages) {
             await db.put('sheets', {
               id: uid(),
@@ -114,6 +117,8 @@ function uploadDialog(ctx, files) {
               thumbId: await saveFile(ctx.project.id, p.thumb, p.name + ' (miniatura)'),
               width: p.width,
               height: p.height,
+              pdfFileId,
+              pdfPage: p.pdfPage || null,
               createdAt: Date.now(),
             });
             count++;
@@ -160,6 +165,7 @@ function editSheet(ctx, sheet) {
     }
     await deleteFile(sheet.fileId);
     if (sheet.thumbId) await deleteFile(sheet.thumbId);
+    await releasePdf(ctx, sheet.pdfFileId, sheet.id);
     await db.del('sheets', sheet.id);
     close();
     toast('Plano eliminado');
@@ -169,16 +175,19 @@ function editSheet(ctx, sheet) {
     const [file] = await pickFiles({ accept: 'application/pdf,image/*' });
     if (!file) return;
     try {
-      const [page] = await fileToSheets(file);
-      const oldFile = sheet.fileId, oldThumb = sheet.thumbId;
+      const { pdf, sheets: [page] } = await fileToSheets(file);
+      const oldFile = sheet.fileId, oldThumb = sheet.thumbId, oldPdf = sheet.pdfFileId;
       sheet.fileId = await saveFile(ctx.project.id, page.blob, sheet.name);
       sheet.thumbId = await saveFile(ctx.project.id, page.thumb, sheet.name + ' (miniatura)');
+      sheet.pdfFileId = pdf ? await saveFile(ctx.project.id, pdf, file.name) : '';
+      sheet.pdfPage = page.pdfPage || null;
       sheet.width = page.width;
       sheet.height = page.height;
       sheet.version = (sheet.version || 1) + 1;
       await db.put('sheets', sheet);
       await deleteFile(oldFile);
       if (oldThumb) await deleteFile(oldThumb);
+      await releasePdf(ctx, oldPdf, sheet.id);
       close();
       toast(`Versión ${sheet.version} subida`);
       ctx.rerender();
@@ -186,4 +195,11 @@ function editSheet(ctx, sheet) {
       toast(err.message, 'error');
     }
   });
+}
+
+/** Borra el PDF original si ningún otro plano lo usa. */
+async function releasePdf(ctx, pdfFileId, exceptSheetId) {
+  if (!pdfFileId) return;
+  if (ctx.sheets.some((s) => s.id !== exceptSheetId && s.pdfFileId === pdfFileId)) return;
+  await deleteFile(pdfFileId);
 }

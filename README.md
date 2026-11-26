@@ -15,7 +15,7 @@ Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
 | --- | --- |
 | **Proyectos** | Crear varios proyectos, proyecto de ejemplo con datos y planos de demostración, importar copias. |
 | **Panel** | Indicadores (abiertas, vencidas, cerradas en 7 días), avance del proyecto, tareas por estado / responsable / categoría, vencidas, próximos vencimientos y actividad reciente. |
-| **Planos** | Subida de PDF (cada página se convierte en un plano) e imágenes, carpetas por disciplina, búsqueda, nuevas versiones del plano manteniendo la posición de las tareas. |
+| **Planos** | Subida de PDF (cada página se convierte en un plano) e imágenes **conservando la calidad original**: se guarda el PDF y, al hacer zoom, la zona visible se redibuja en vectorial a la resolución de la pantalla. Las imágenes se guardan sin recomprimir. Además, carpetas por disciplina, búsqueda, nuevas versiones del plano manteniendo la posición de las tareas. |
 | **Visor de planos** | Zoom y desplazamiento (rueda, arrastre, pellizco en móvil), crear tareas tocando el plano, pines de colores por estado con número, arrastrar pines para reubicar, filtros por estado, lista lateral de tareas del plano. |
 | **Tareas** | Estados (prioridad alta/media/baja, completada, verificada), responsable, categoría, fechas, ubicación, etiquetas, descripción, lista de verificación, fotos (cámara del móvil), comentarios e historial automático de cambios. |
 | **Lista y tablero** | Filtros (texto, estado, categoría, responsable, plano, vencidas), ordenación, vista Kanban con arrastrar y soltar, acciones masivas (estado, asignación, eliminar). |
@@ -67,7 +67,8 @@ css/styles.css          Estilos (modo claro/oscuro, adaptable a móvil)
 js/app.js               Enrutador, estructura principal y arranque (modo local / equipo)
 js/db.js                Modelo de datos y persistencia (IndexedDB), bandeja de cambios, copia de seguridad
 js/sync.js              Cuentas, roles y motor de sincronización con el servidor
-js/media.js             PDF → imágenes (pdf.js), miniaturas, compresión de fotos, plano demo
+js/media.js             PDF → imagen base sin pérdida (pdf.js), miniaturas, compresión de fotos, plano demo
+js/hires.js             Redibujado nítido desde el PDF original al hacer zoom en el visor
 js/ui.js                Utilidades de interfaz (modales, avisos, formato)
 js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, team, settings
 server/app.js           API HTTP (cuentas, permisos, sincronización, archivos) y servidor de la app

@@ -413,3 +413,4 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
   .topbar { padding: 0 16px; }
   .access-list li { flex-wrap: wrap; }
 }
+.stage .hires { position: absolute; pointer-events: none; }
