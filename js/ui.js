@@ -194,6 +194,7 @@ export const ICON_PHOTO_PIN = '<svg viewBox="0 0 24 24" width="18" height="18" f
 export function choosePhotos({ title = 'Añadir fotos' } = {}) {
   return new Promise((resolve) => {
     let chosen = false;
+    const onlyImages = (files) => files.filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name));
     const { el, close } = modal({
       title,
       sheet: true,
@@ -212,9 +213,57 @@ export function choosePhotos({ title = 'Añadir fotos' } = {}) {
       // El selector debe abrirse dentro del mismo toque (requisito de los navegadores móviles)
       const p = pickFiles(opts);
       close();
+      p.then((files) => resolve(onlyImages(files)));
+    };
+    el.querySelector('[data-src=camera]').onclick = async () => {
+      chosen = true;
+      close();
+      // 1) Cámara integrada (vista previa en directo). 2) Si está bloqueada, alternativas.
+      const { openCamera } = await import('./camera.js');
+      const shots = await openCamera();
+      if (shots) return resolve(shots);
+      resolve(await cameraFallback());
+    };
+    el.querySelector('[data-src=gallery]').onclick = () => pick({ accept: 'image/*', multiple: true });
+    const obs = new MutationObserver(() => {
+      if (!el.isConnected) {
+        obs.disconnect();
+        if (!chosen) resolve([]);
+      }
+    });
+    obs.observe(document.getElementById('modal-root'), { childList: true });
+  });
+}
+
+/** Cuando la cámara integrada no está disponible: cámara del sistema o galería, con una explicación. */
+function cameraFallback() {
+  return new Promise((resolve) => {
+    let chosen = false;
+    const inClaude = /(^|\.)claude\.ai$/.test(location.hostname) || window.top !== window.self;
+    const { el, close } = modal({
+      title: 'No se pudo abrir la cámara',
+      sheet: true,
+      body: `
+        <p class="muted small">${inClaude
+          ? 'Esta vista previa (dentro de Claude) no permite usar la cámara directamente. Prueba una de estas opciones:'
+          : 'El navegador no permitió usar la cámara (permiso denegado o no disponible). Prueba una de estas opciones:'}</p>
+        <div class="photo-source">
+          <button type="button" class="source-btn" data-src="system">
+            ${ICON_CAMERA}<span><strong>Usar la cámara del teléfono</strong><small>Abre la app de cámara del sistema</small></span>
+          </button>
+          <button type="button" class="source-btn" data-src="gallery">
+            ${ICON_GALLERY}<span><strong>Elegir de la galería</strong><small>En el menú del sistema suele aparecer también «Hacer foto»</small></span>
+          </button>
+        </div>
+        ${inClaude ? '<p class="muted small">Para usar la cámara integrada, abre la app desde su propia dirección web (por ejemplo, publicada en GitHub Pages).</p>' : '<p class="muted small">Si negaste el permiso, actívalo en los ajustes del navegador para este sitio.</p>'}`,
+    });
+    const pick = (opts) => {
+      chosen = true;
+      const p = pickFiles(opts);
+      close();
       p.then((files) => resolve(files.filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name))));
     };
-    el.querySelector('[data-src=camera]').onclick = () => pick({ accept: 'image/*', capture: 'environment' });
+    el.querySelector('[data-src=system]').onclick = () => pick({ accept: 'image/*', capture: 'environment' });
     el.querySelector('[data-src=gallery]').onclick = () => pick({ accept: 'image/*', multiple: true });
     const obs = new MutationObserver(() => {
       if (!el.isConnected) {
