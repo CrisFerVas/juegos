@@ -166,6 +166,7 @@ function editSheet(ctx, sheet) {
     await deleteFile(sheet.fileId);
     if (sheet.thumbId) await deleteFile(sheet.thumbId);
     await releasePdf(ctx, sheet.pdfFileId, sheet.id);
+    for (const m of await db.byProject('markups', ctx.project.id)) if (m.sheetId === sheet.id) await db.del('markups', m.id);
     await db.del('sheets', sheet.id);
     close();
     toast('Plano eliminado');

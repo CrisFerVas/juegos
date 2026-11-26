@@ -111,7 +111,8 @@ export function createPdfLayer({ sheet, stage, container, getState }) {
     if (gen !== generation || !stage.isConnected) return;
     clear();
     current = canvas;
-    stage.insertBefore(canvas, stage.querySelector('.pins'));
+    // Debajo de las anotaciones y los pines
+    stage.insertBefore(canvas, stage.querySelector('.markups, .pins'));
   }
 
   return { schedule, ready };

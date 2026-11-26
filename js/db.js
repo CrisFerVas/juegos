@@ -3,8 +3,8 @@
 // Almacenes internos: outbox (cambios pendientes de sincronizar) y meta (cursores, etc.).
 
 let dbName = 'obraplan';
-const VERSION = 2;
-export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files'];
+const VERSION = 3;
+export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups'];
 
 let dbPromise;
 
@@ -290,7 +290,7 @@ function blobToDataURL(blob) {
 export async function exportProject(projectId) {
   const out = { format: 'obraplan-backup', version: 1, exportedAt: new Date().toISOString() };
   out.project = await db.get('projects', projectId);
-  for (const store of ['members', 'sheets', 'tasks']) out[store] = await db.byProject(store, projectId);
+  for (const store of ['members', 'sheets', 'tasks', 'markups']) out[store] = await db.byProject(store, projectId);
   const files = await db.byProject('files', projectId);
   out.files = [];
   for (const f of files) {
@@ -324,6 +324,9 @@ export async function importProject(backup) {
   for (const m of backup.members || []) await db.put('members', { ...m, id: remap(m.id), projectId: pid });
   for (const s of backup.sheets || []) {
     await db.put('sheets', { ...s, id: remap(s.id), projectId: pid, fileId: remap(s.fileId), thumbId: remap(s.thumbId), pdfFileId: remap(s.pdfFileId) });
+  }
+  for (const m of backup.markups || []) {
+    await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId: remap(m.sheetId) });
   }
   for (const t of backup.tasks || []) {
     await db.put('tasks', {

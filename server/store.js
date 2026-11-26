@@ -1,7 +1,7 @@
 // Persistencia del servidor con SQLite (módulo integrado en Node >= 22.5).
 import { DatabaseSync } from 'node:sqlite';
 
-export const SYNCED_STORES = ['projects', 'members', 'sheets', 'tasks', 'files'];
+export const SYNCED_STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups'];
 export const ROLES = ['admin', 'miembro', 'seguidor'];
 
 const SCHEMA = `

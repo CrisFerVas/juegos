@@ -3,6 +3,7 @@ import { esc, toast, avatar, fmtDate, userName } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 import { createPdfLayer } from '../hires.js';
+import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
@@ -38,6 +39,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
           ${STATUSES.map((s) => `<button class="chip active" data-filter="${s.id}" style="--c:${s.color}" title="${s.label}">${s.short}</button>`).join('')}
         </div>
         <span class="spacer"></span>
+        <button class="btn write" id="markup-mode" title="Dibujar y escribir sobre el plano">✎ Anotar</button>
+        <button class="icon-btn" id="markup-visible" title="Ocultar anotaciones" aria-label="Mostrar u ocultar anotaciones" aria-pressed="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
         <button class="btn btn-primary write" id="add-mode">＋ Tarea</button>
         <div class="zoom-group">
           <button class="icon-btn" id="zoom-out" aria-label="Alejar">−</button>
@@ -53,6 +58,21 @@ export async function renderViewer(view, ctx, sheetId, params) {
             <div class="pins" id="pins"></div>
           </div>
           <div class="viewer-hint hidden" id="hint"></div>
+          <div class="markup-bar hidden" id="markup-bar" role="toolbar" aria-label="Herramientas de anotación">
+            <div class="markup-group">
+              ${MARKUP_TOOLS.map((t) => `<button class="markup-tool" data-tool="${t.id}" title="${t.n}" aria-label="${t.n}">${t.i}</button>`).join('')}
+            </div>
+            <div class="markup-group">
+              ${MARKUP_COLORS.map((c) => `<button class="markup-color" data-color="${c.c}" style="--mc:${c.c}" title="${c.n}" aria-label="Color ${c.n}"></button>`).join('')}
+            </div>
+            <div class="markup-group">
+              ${MARKUP_WIDTHS.map((w) => `<button class="markup-width" data-width="${w.w}" title="${w.n}" aria-label="Grosor ${w.n}"><span style="height:${w.w + 1}px"></span></button>`).join('')}
+            </div>
+            <div class="markup-group">
+              <button class="markup-tool" id="markup-undo" title="Deshacer" aria-label="Deshacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+              <button class="btn btn-primary btn-sm" id="markup-done">Listo</button>
+            </div>
+          </div>
         </div>
         <aside class="viewer-list" id="list"></aside>
       </div>
@@ -159,7 +179,18 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   const setMode = (mode) => {
     state.mode = mode;
-    canvas.classList.toggle('mode-add', mode !== 'view');
+    canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place');
+    canvas.classList.toggle('mode-draw', mode === 'draw');
+    markupBar.classList.toggle('hidden', mode !== 'draw');
+    markupBtn.classList.toggle('btn-active', mode === 'draw');
+    if (mode === 'draw') {
+      markup.setVisible(true);
+      if (window.innerWidth <= 900 && state.listOpen) {
+        state.listOpen = false; // más espacio para dibujar en el móvil
+        drawPins();
+      }
+      syncMarkupBar();
+    }
     addBtn.classList.toggle('btn-active', mode === 'add');
     addBtn.textContent = mode === 'add' ? 'Cancelar' : '＋ Tarea';
     if (mode === 'add') showHint('Toca el plano donde quieres crear la tarea');
@@ -173,10 +204,49 @@ export async function renderViewer(view, ctx, sheetId, params) {
     hint.classList.toggle('hidden', !text);
   };
 
-  // Actualiza sólo los pines cuando cambia una tarea desde el panel lateral.
+  // Actualiza sólo los pines (y anotaciones) cuando cambia algo desde el panel lateral u otro usuario.
   ctx.onTaskChanged = async () => {
     await ctx.reload();
     drawPins();
+    await markup.load();
+  };
+
+  // ---------- Anotaciones ----------
+  const markupBar = view.querySelector('#markup-bar');
+  const markupBtn = view.querySelector('#markup-mode');
+  const markup = createMarkupLayer({ ctx, sheet, stage, getScale: () => state.scale });
+  const drawTool = () => (state.mode === 'draw' ? markup.settings.tool : null);
+  function syncMarkupBar() {
+    const s = markup.settings;
+    markupBar.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === s.tool));
+    markupBar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === s.color));
+    markupBar.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', Number(b.dataset.width) === s.width));
+    view.querySelector('#markup-undo').disabled = !markup.canUndo();
+    canvas.dataset.tool = s.tool;
+    const hints = { hand: 'Arrastra para mover el plano', text: 'Toca el plano donde quieres escribir', eraser: 'Toca o arrastra sobre una anotación para borrarla' };
+    showHint(hints[s.tool] || 'Dibuja con un dedo · usa dos dedos para mover y hacer zoom');
+  }
+  markupBar.addEventListener('pointerdown', (e) => e.stopPropagation());
+  markupBar.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { markup.setTool(b.dataset.tool); syncMarkupBar(); }));
+  markupBar.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { markup.setColor(b.dataset.color); syncMarkupBar(); }));
+  markupBar.querySelectorAll('[data-width]').forEach((b) => (b.onclick = () => { markup.setWidth(Number(b.dataset.width)); syncMarkupBar(); }));
+  view.querySelector('#markup-undo').onclick = async () => { await markup.undo(); syncMarkupBar(); };
+  view.querySelector('#markup-done').onclick = () => setMode('view');
+  markupBtn.onclick = () => setMode(state.mode === 'draw' ? 'view' : 'draw');
+  let markupsVisible = true;
+  try { markupsVisible = localStorage.getItem('obraplan.markupsVisible') !== '0'; } catch { /* sin almacenamiento */ }
+  const visBtn = view.querySelector('#markup-visible');
+  const applyVisible = () => {
+    markup.setVisible(markupsVisible);
+    visBtn.setAttribute('aria-pressed', String(markupsVisible));
+    visBtn.classList.toggle('off', !markupsVisible);
+    visBtn.title = markupsVisible ? 'Ocultar anotaciones' : 'Mostrar anotaciones';
+  };
+  visBtn.onclick = () => {
+    markupsVisible = !markupsVisible;
+    if (!markupsVisible && state.mode === 'draw') setMode('view');
+    try { localStorage.setItem('obraplan.markupsVisible', markupsVisible ? '1' : '0'); } catch { /* sin almacenamiento */ }
+    applyVisible();
   };
 
   // ---------- Interacción ----------
@@ -187,6 +257,16 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const tool = drawTool();
+    if (pointers.size === 1 && tool && !['hand', 'text'].includes(tool)) {
+      const p = toPlan(e.clientX, e.clientY);
+      if (tool === 'eraser') {
+        gesture = { type: 'erase' };
+        markup.eraseAt(p).then(syncMarkupBar);
+      } else if (markup.start(p)) gesture = { type: 'draw' };
+      return;
+    }
+    if (pointers.size === 2 && gesture?.type === 'draw') markup.cancel();
     if (pointers.size === 1) {
       const pin = e.target.closest('[data-pin]');
       gesture = { type: 'pan', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, pinId: pin?.dataset.pin, pinEl: pin, t0: Date.now() };
@@ -199,6 +279,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId) || !gesture) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (gesture.type === 'draw') return markup.move(toPlan(e.clientX, e.clientY));
+    if (gesture.type === 'erase') return void markup.eraseAt(toPlan(e.clientX, e.clientY)).then(syncMarkupBar);
     if (gesture.type === 'pan') {
       if (!gesture.moved && Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > TAP_TOLERANCE) gesture.moved = true;
       if (!gesture.moved) return;
@@ -240,6 +322,12 @@ export async function renderViewer(view, ctx, sheetId, params) {
       return;
     }
     gesture = null;
+    if (g?.type === 'draw') {
+      if (e.type === 'pointercancel') markup.cancel();
+      else await markup.end();
+      return syncMarkupBar();
+    }
+    if (g?.type === 'erase') return;
     if (!g || e.type === 'pointercancel') return;
 
     if (g.dragging) {
@@ -256,6 +344,14 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
     // Toque (tap)
     const p = toPlan(e.clientX, e.clientY);
+    if (state.mode === 'draw') {
+      if (markup.settings.tool === 'text') {
+        if (!inside(p)) return toast('Toca dentro del plano', 'error');
+        markup.addText(p);
+        setTimeout(syncMarkupBar, 400);
+      }
+      return;
+    }
     if (state.mode === 'add') {
       if (!inside(p)) return toast('Toca dentro del plano', 'error');
       setMode('view');
@@ -297,7 +393,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     state.listOpen = !state.listOpen;
     drawPins();
   };
-  addBtn.onclick = () => setMode(state.mode === 'view' ? 'add' : 'view');
+  addBtn.onclick = () => setMode(state.mode === 'add' ? 'view' : 'add');
   view.querySelector('#sheet-switch').onchange = (e) => (location.hash = `#/p/${ctx.project.id}/plans/${e.target.value}`);
   view.querySelectorAll('[data-filter]').forEach((b) =>
     b.addEventListener('click', () => {
@@ -326,6 +422,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   // ---------- Estado inicial ----------
   drawPins();
+  applyVisible();
+  await markup.load();
   await new Promise((r) => requestAnimationFrame(r));
   fit();
   setMode(state.mode);
