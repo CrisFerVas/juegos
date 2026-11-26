@@ -1,9 +1,10 @@
-import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue } from '../db.js';
-import { esc, toast, avatar, fmtDate, userName, modal } from '../ui.js';
+import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue, deleteFile } from '../db.js';
+import { esc, toast, avatar, fmtDate, userName, modal, ICON_PHOTO_PIN } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
 import { createCompare } from '../compare.js';
+import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer } from '../photopins.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 
 const MIN_SCALE = 0.05;
@@ -29,6 +30,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     mode: params.get('place') ? 'place' : 'view',
     placeTaskId: params.get('place') || null,
     hidden: new Set(),
+    photosVisible: true,
     listOpen: window.innerWidth > 900,
   };
 
@@ -41,8 +43,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
         </select>
         <div class="status-filters" role="group" aria-label="Filtrar por estado">
           ${STATUSES.map((s) => `<button class="chip active" data-filter="${s.id}" style="--c:${s.color}" title="${s.label}">${s.short}</button>`).join('')}
+          <button class="chip active" id="filter-photos" style="--c:#0f172a" title="Mostrar u ocultar las fotos">Fotos</button>
         </div>
         <span class="spacer"></span>
+        <button class="btn write photo-btn" id="photo-mode" title="Añadir fotos en un punto del plano">${ICON_PHOTO_PIN}<span>Foto</span></button>
         <button class="btn write" id="markup-mode" title="Dibujar y escribir sobre el plano">✎ Anotar</button>
         <button class="icon-btn" id="markup-visible" title="Ocultar anotaciones" aria-label="Mostrar u ocultar anotaciones" aria-pressed="true">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -119,8 +123,13 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const listEl = view.querySelector('#list');
   const hint = view.querySelector('#hint');
   const addBtn = view.querySelector('#add-mode');
+  const photoBtn = view.querySelector('#photo-mode');
 
   const sheetTasks = () => ctx.tasks.filter((t) => t.sheetId === sheet.id && t.x != null);
+  let photoPins = [];
+  const reloadPhotos = async () => {
+    photoPins = await loadPhotoPins(ctx.project.id, sheet.id);
+  };
 
   // ---------- Transformación ----------
   let pdfLayer = null;
@@ -178,7 +187,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
         return `<button class="pin ${isOverdue(t) ? 'pin-overdue' : ''} ${t.id === state.placeTaskId ? 'pin-placing' : ''}" data-pin="${t.id}"
           style="left:${t.x * W}px;top:${t.y * H}px;--c:${st.color}" title="#${t.number} ${esc(t.title)}">${t.number}</button>`;
       })
-      .join('');
+      .join('') + (state.photosVisible ? photoPinsHTML(photoPins, W, H) : '');
     const all = sheetTasks();
     listEl.innerHTML = `
       <div class="viewer-list-head"><strong>Tareas en este plano</strong><span class="muted small">${tasks.length}/${all.length}</span></div>
@@ -219,7 +228,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const setMode = (mode) => {
     if (mode !== state.mode) markupRef?.deselect();
     state.mode = mode;
-    canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place');
+    canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place' || mode === 'photo');
+    photoBtn.classList.toggle('btn-active', mode === 'photo');
     canvas.classList.toggle('mode-draw', mode === 'draw');
     markupBar.classList.toggle('hidden', mode !== 'draw');
     markupBtn.classList.toggle('btn-active', mode === 'draw');
@@ -234,6 +244,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     addBtn.classList.toggle('btn-active', mode === 'add');
     addBtn.textContent = mode === 'add' ? 'Cancelar' : '＋ Tarea';
     if (mode === 'add') showHint('Toca el plano donde quieres crear la tarea');
+    else if (mode === 'photo') showHint('Toca el punto del plano donde tomas la foto');
     else if (mode === 'place') {
       const t = ctx.tasks.find((x) => x.id === state.placeTaskId);
       showHint(`Toca el plano para ubicar la tarea #${t?.number ?? ''}`);
@@ -247,6 +258,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   // Actualiza sólo los pines (y anotaciones) cuando cambia algo desde el panel lateral u otro usuario.
   ctx.onTaskChanged = async () => {
     await ctx.reload();
+    await reloadPhotos();
     drawPins();
     await markup.load();
   };
@@ -459,8 +471,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
     }
     if (pointers.size === 2 && gesture?.type === 'draw') markup.cancel();
     if (pointers.size === 1) {
-      const pin = e.target.closest('[data-pin]');
-      gesture = { type: 'pan', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, pinId: pin?.dataset.pin, pinEl: pin, t0: Date.now() };
+      const pin = e.target.closest('[data-pin], [data-photo-pin]');
+      gesture = { type: 'pan', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, pinId: pin?.dataset.pin, photoId: pin?.dataset.photoPin, pinEl: pin, t0: Date.now() };
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       gesture = { type: 'pinch', dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, moved: true };
@@ -480,7 +492,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (gesture.type === 'pan') {
       if (!gesture.moved && Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > TAP_TOLERANCE) gesture.moved = true;
       if (!gesture.moved) return;
-      if (gesture.pinId && state.mode === 'view' && canEdit(ctx.project.id)) {
+      if ((gesture.pinId || gesture.photoId) && state.mode === 'view' && canEdit(ctx.project.id)) {
         // Arrastrar un pin para reubicar la tarea
         const p = toPlan(e.clientX, e.clientY);
         gesture.pinEl.style.left = `${Math.min(1, Math.max(0, p.x)) * W}px`;
@@ -533,6 +545,15 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (g?.type === 'erase') return;
     if (!g || e.type === 'pointercancel') return;
 
+    if (g.dragging && g.photoId) {
+      const doc = photoPins.find((x) => x.id === g.photoId);
+      const p = toPlan(e.clientX, e.clientY);
+      doc.points = [[Math.min(1, Math.max(0, p.x)), Math.min(1, Math.max(0, p.y))]];
+      await db.put('markups', doc);
+      toast('Foto reubicada');
+      drawPins();
+      return;
+    }
     if (g.dragging) {
       const task = ctx.tasks.find((t) => t.id === g.pinId);
       const p = toPlan(e.clientX, e.clientY);
@@ -558,6 +579,21 @@ export async function renderViewer(view, ctx, sheetId, params) {
         markup.addText(p);
         setTimeout(syncMarkupBar, 400);
       }
+      return;
+    }
+    if (state.mode === 'photo') {
+      if (!inside(p)) return toast('Toca dentro del plano', 'error');
+      setMode('view');
+      const saved = await addPhotoPin(ctx, sheet, p);
+      if (saved) {
+        await reloadPhotos();
+        drawPins();
+      }
+      return;
+    }
+    if (state.mode === 'view' && g.photoId) {
+      const doc = photoPins.find((x) => x.id === g.photoId);
+      if (doc) showPhotos(doc);
       return;
     }
     if (state.mode === 'add') {
@@ -602,6 +638,28 @@ export async function renderViewer(view, ctx, sheetId, params) {
     drawPins();
   };
   addBtn.onclick = () => setMode(state.mode === 'add' ? 'view' : 'add');
+  photoBtn.onclick = () => setMode(state.mode === 'photo' ? 'view' : 'photo');
+  view.querySelector('#filter-photos').onclick = (e) => {
+    state.photosVisible = !state.photosVisible;
+    e.currentTarget.classList.toggle('active', state.photosVisible);
+    drawPins();
+  };
+  function showPhotos(doc) {
+    openPhotoViewer(ctx, doc, {
+      canEdit: canEdit(ctx.project.id),
+      onChange: async () => {
+        await reloadPhotos();
+        drawPins();
+      },
+      onCreateTask: async (pin, copies) => {
+        // La tarea se coloca junto al icono de fotos (no debajo), a ~30 px en pantalla
+        const dx = 30 / state.scale / W;
+        const x = Math.min(1, pin.points[0][0] + dx);
+        const task = await newTaskForm(ctx, { sheetId: sheet.id, x, y: pin.points[0][1], photoIds: copies });
+        if (!task) for (const id of copies) await deleteFile(id); // cancelada: no dejar copias sueltas
+      },
+    });
+  }
   view.querySelector('#sheet-switch').onchange = (e) => (location.hash = `#/p/${ctx.project.id}/plans/${e.target.value}`);
   view.querySelectorAll('[data-filter]').forEach((b) =>
     b.addEventListener('click', () => {
@@ -682,8 +740,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const leaveCompare = () => compare.active() && closeCompare();
   markupBtn.addEventListener('click', leaveCompare, true);
   addBtn.addEventListener('click', leaveCompare, true);
+  photoBtn.addEventListener('click', leaveCompare, true);
 
   // ---------- Estado inicial ----------
+  await reloadPhotos();
   drawPins();
   applyVisible();
   await markup.load();

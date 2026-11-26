@@ -193,7 +193,11 @@ function editSheet(ctx, sheet) {
       await db.put('tasks', t);
     }
     for (const v of [pickVersion(sheet), ...versions]) await deleteVersionFiles(ctx, v, sheet.id);
-    for (const m of await db.byProject('markups', ctx.project.id)) if (m.sheetId === sheet.id) await db.del('markups', m.id);
+    for (const m of await db.byProject('markups', ctx.project.id)) {
+      if (m.sheetId !== sheet.id) continue;
+      for (const id of m.photoIds || []) await deleteFile(id); // fotos colocadas en el plano
+      await db.del('markups', m.id);
+    }
     await db.del('sheets', sheet.id);
     close();
     toast('Plano eliminado');

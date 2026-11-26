@@ -1,6 +1,6 @@
 import { db, STATUSES, statusOf, createTask, saveTask, saveFile, fileUrl, deleteFile, isOverdue, uid } from '../db.js';
-import { esc, modal, toast, confirmDialog, fmtDateTime, pickFiles, userName } from '../ui.js';
-import { resizeImage } from '../media.js';
+import { esc, modal, toast, confirmDialog, fmtDateTime, choosePhotos, userName } from '../ui.js';
+import { savePhotos } from '../media.js';
 import { canEdit } from '../sync.js';
 
 let drawer = null;
@@ -282,17 +282,13 @@ async function renderDrawer(ctx, task) {
   );
 
   drawer.querySelector('[data-act=photo]').addEventListener('click', async () => {
-    const files = await pickFiles({ accept: 'image/*', multiple: true });
+    const files = await choosePhotos({ title: `Fotos de la tarea #${task.number}` });
     if (!files.length) return;
-    for (const f of files) {
-      try {
-        const { blob } = await resizeImage(f, 1600);
-        task.photoIds.push(await saveFile(ctx.project.id, blob, f.name));
-      } catch {
-        toast(`No se pudo leer ${f.name}`, 'error');
-      }
-    }
-    await save(`${files.length} foto(s) añadida(s)`);
+    const ids = await savePhotos(ctx.project.id, files);
+    if (ids.length < files.length) toast(`${files.length - ids.length} foto(s) no se pudieron leer`, 'error');
+    if (!ids.length) return;
+    task.photoIds.push(...ids);
+    await save(`${ids.length} foto(s) añadida(s)`);
   });
   drawer.querySelectorAll('[data-photo]').forEach((img) =>
     img.addEventListener('click', () => {

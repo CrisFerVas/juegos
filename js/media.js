@@ -1,5 +1,7 @@
 // Procesado de planos (PDF / imagen), miniaturas y compresión de fotos.
 
+import { saveFile } from './db.js';
+
 const PDFJS_VERSION = '3.11.174';
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
 let pdfjsPromise;
@@ -227,4 +229,22 @@ export async function demoFloorPlan(variant = 0) {
   const blob = await canvasToBlob(c, 'image/png');
   const thumb = (await resizeImage(blob, 480)).blob;
   return { blob, thumb, width: W, height: H };
+}
+
+/**
+ * Prepara y guarda fotos de obra: se reducen a un máximo de 2560 px (suficiente para ver detalles,
+ * y ligeras para sincronizar por datos móviles). Devuelve los identificadores guardados.
+ */
+export async function savePhotos(projectId, files, onProgress = () => {}) {
+  const ids = [];
+  for (const [i, f] of files.entries()) {
+    onProgress(i + 1, files.length);
+    try {
+      const { blob } = await resizeImage(f, 2560, 'image/jpeg', 0.86);
+      ids.push(await saveFile(projectId, blob, f.name || `foto-${Date.now()}.jpg`));
+    } catch {
+      /* formato no legible por el navegador (p. ej. HEIC en algunos equipos) */
+    }
+  }
+  return ids;
 }

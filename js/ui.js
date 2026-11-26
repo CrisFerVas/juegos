@@ -29,12 +29,12 @@ export function toast(msg, type = 'ok') {
  * Abre un modal. `body` es HTML. Si se pasa `onSubmit`, el cuerpo se envuelve en un <form>
  * y recibe un objeto con los valores del formulario. Devolver `false` mantiene el modal abierto.
  */
-export function modal({ title, body, submitLabel = 'Guardar', onSubmit, wide = false, onOpen }) {
+export function modal({ title, body, submitLabel = 'Guardar', onSubmit, wide = false, sheet = false, full = false, onOpen }) {
   const root = document.getElementById('modal-root');
   const wrap = document.createElement('div');
   wrap.className = 'modal-backdrop';
   wrap.innerHTML = `
-    <div class="modal ${wide ? 'modal-wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="modal ${wide ? 'modal-wide' : ''} ${sheet ? 'modal-sheet' : ''} ${full ? 'modal-full' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <form class="modal-form" novalidate>
         <header class="modal-head">
           <h2>${esc(title)}</h2>
@@ -50,8 +50,11 @@ export function modal({ title, body, submitLabel = 'Guardar', onSubmit, wide = f
     </div>`;
   root.appendChild(wrap);
   const close = () => wrap.remove();
+  // En pantallas táctiles, el "clic" que sigue al toque que abrió el diálogo no debe cerrarlo
+  const openedAt = performance.now();
   wrap.addEventListener('click', (e) => {
-    if (e.target === wrap || e.target.closest('[data-close]')) close();
+    if (e.target.closest('[data-close]')) return close();
+    if (e.target === wrap && performance.now() - openedAt > 400) close();
   });
   const onKey = (e) => {
     if (e.key === 'Escape') {
@@ -146,6 +149,11 @@ export function pickFiles({ accept = '*/*', multiple = false, capture } = {}) {
       resolve([...input.files]);
       input.remove();
     });
+    // Si se cierra la cámara o el selector sin elegir nada
+    input.addEventListener('cancel', () => {
+      resolve([]);
+      input.remove();
+    });
     document.body.appendChild(input);
     input.click();
   });
@@ -173,4 +181,47 @@ export function setUserName(v) {
   } catch {
     /* almacenamiento no disponible */
   }
+}
+
+const ICON_CAMERA = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.8"/></svg>';
+const ICON_GALLERY = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>';
+export const ICON_PHOTO_PIN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>';
+
+/**
+ * Menú para elegir el origen de las fotos: cámara del móvil o archivos del dispositivo.
+ * Devuelve la lista de archivos elegidos (vacía si se cancela).
+ */
+export function choosePhotos({ title = 'Añadir fotos' } = {}) {
+  return new Promise((resolve) => {
+    let chosen = false;
+    const { el, close } = modal({
+      title,
+      sheet: true,
+      body: `
+        <div class="photo-source">
+          <button type="button" class="source-btn" data-src="camera">
+            ${ICON_CAMERA}<span><strong>Abrir cámara</strong><small>Hacer una foto ahora</small></span>
+          </button>
+          <button type="button" class="source-btn" data-src="gallery">
+            ${ICON_GALLERY}<span><strong>Subir desde el dispositivo</strong><small>Galería o archivos · puedes elegir varias</small></span>
+          </button>
+        </div>`,
+    });
+    const pick = (opts) => {
+      chosen = true;
+      // El selector debe abrirse dentro del mismo toque (requisito de los navegadores móviles)
+      const p = pickFiles(opts);
+      close();
+      p.then((files) => resolve(files.filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name))));
+    };
+    el.querySelector('[data-src=camera]').onclick = () => pick({ accept: 'image/*', capture: 'environment' });
+    el.querySelector('[data-src=gallery]').onclick = () => pick({ accept: 'image/*', multiple: true });
+    const obs = new MutationObserver(() => {
+      if (!el.isConnected) {
+        obs.disconnect();
+        if (!chosen) resolve([]);
+      }
+    });
+    obs.observe(document.getElementById('modal-root'), { childList: true });
+  });
 }
