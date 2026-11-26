@@ -9,7 +9,7 @@ import { fileBlob } from './db.js';
 const MAX_CANVAS_PIXELS = 16_000_000; // límite de lienzo en navegadores móviles
 const docs = new Map(); // fileId -> Promise<PDFDocumentProxy>  (caché pequeña)
 
-function openDoc(fileId) {
+export function openDoc(fileId) {
   if (!docs.has(fileId)) {
     const p = (async () => {
       const blob = await fileBlob(fileId);
@@ -48,7 +48,7 @@ export async function pdfPageWidthMm(sheet) {
  * @param getState  () => ({ scale, tx, ty }) transformación actual del stage
  */
 export function createPdfLayer({ sheet, stage, container, getState }) {
-  const noop = { schedule() {}, ready: Promise.resolve(false) };
+  const noop = { schedule() {}, setEnabled() {}, ready: Promise.resolve(false) };
   if (!sheet.pdfFileId) return noop;
 
   let page = null;
@@ -56,6 +56,7 @@ export function createPdfLayer({ sheet, stage, container, getState }) {
   let timer = null;
   let current = null; // lienzo mostrado
   let generation = 0;
+  let enabled = true;
 
   const ready = openDoc(sheet.pdfFileId)
     .then((doc) => doc.getPage(sheet.pdfPage || 1))
@@ -77,7 +78,7 @@ export function createPdfLayer({ sheet, stage, container, getState }) {
   }
 
   async function render() {
-    if (!page || !stage.isConnected) return;
+    if (!enabled || !page || !stage.isConnected) return;
     const { scale, tx, ty } = getState();
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
     // Sólo merece la pena cuando la pantalla muestra más detalle que la imagen base.
@@ -127,5 +128,15 @@ export function createPdfLayer({ sheet, stage, container, getState }) {
     stage.insertBefore(canvas, stage.querySelector('.markups, .pins'));
   }
 
-  return { schedule, ready };
+  /** Se desactiva mientras se comparan versiones (la imagen de comparación va debajo). */
+  function setEnabled(v) {
+    enabled = v;
+    if (!v) {
+      task?.cancel();
+      generation++;
+      clear();
+    } else schedule(0);
+  }
+
+  return { schedule, ready, setEnabled };
 }

@@ -3,6 +3,7 @@ import { esc, toast, avatar, fmtDate, userName, modal } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
+import { createCompare } from '../compare.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 
 const MIN_SCALE = 0.05;
@@ -17,6 +18,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
   }
   const src = await fileUrl(sheet.fileId);
   const W = sheet.width, H = sheet.height;
+  const versions = [...(sheet.versions || [])].sort((a, b) => b.version - a.version);
+  const vDate = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric' });
   // Zoom máximo (píxeles de pantalla por píxel de la imagen base). En PDF se redibuja en vectorial,
   // así que se puede ampliar mucho más sin perder nitidez.
   const MAX_SCALE = sheet.pdfFileId ? 16 : 6;
@@ -44,6 +47,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
         <button class="icon-btn" id="markup-visible" title="Ocultar anotaciones" aria-label="Mostrar u ocultar anotaciones" aria-pressed="true">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
+        ${versions.length ? '<button class="btn" id="compare-btn" title="Comparar con versiones anteriores">⇄ Comparar</button>' : ''}
         <button class="btn btn-primary write" id="add-mode">＋ Tarea</button>
         <div class="zoom-group">
           <button class="icon-btn" id="zoom-out" aria-label="Alejar">−</button>
@@ -59,6 +63,22 @@ export async function renderViewer(view, ctx, sheetId, params) {
             <div class="pins" id="pins"></div>
           </div>
           <div class="viewer-hint hidden" id="hint"></div>
+          ${versions.length ? `
+          <div class="compare-bar hidden" id="compare-bar" role="toolbar" aria-label="Comparar versiones">
+            <label class="compare-pick">v${sheet.version || 1} (actual) frente a
+              <select id="compare-version">${versions.map((v) => `<option value="${v.version}">v${v.version}${v.uploadedAt ? ` · ${vDate.format(v.uploadedAt)}` : ''}</option>`).join('')}</select>
+            </label>
+            <div class="seg-toggle" role="group" aria-label="Modo de comparación">
+              <button data-cmode="overlay" class="active">Superposición</button>
+              <button data-cmode="curtain">Cortina</button>
+            </div>
+            <div class="compare-legend" id="compare-legend">
+              <span><i style="background:#ff0000"></i>Eliminado</span>
+              <span><i style="background:#0000ff"></i>Nuevo</span>
+              <span><i style="background:#a3a3a3"></i>Sin cambios</span>
+            </div>
+            <button class="icon-btn" id="compare-close" title="Cerrar comparación" aria-label="Cerrar comparación">✕</button>
+          </div>` : ''}
           <div class="markup-bar hidden" id="sel-bar" role="toolbar" aria-label="Anotación seleccionada">
             <div class="markup-group"><span class="sel-label">Seleccionada</span></div>
             <div class="markup-group">
@@ -105,11 +125,13 @@ export async function renderViewer(view, ctx, sheetId, params) {
   // ---------- Transformación ----------
   let pdfLayer = null;
   let markupRef = null;
+  let compareRef = null;
   const apply = () => {
     stage.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
     pdfLayer?.schedule();
     stage.style.setProperty('--inv', 1 / state.scale);
     markupRef?.refreshSelection();
+    compareRef?.update();
   };
   const fit = () => {
     const r = canvas.getBoundingClientRect();
@@ -606,6 +628,61 @@ export async function renderViewer(view, ctx, sheetId, params) {
   // Redibujado nítido desde el PDF original al hacer zoom
   pdfLayer = createPdfLayer({ sheet, stage, container: canvas, getState: () => state });
 
+  // ---------- Comparar versiones ----------
+  const compareBar = view.querySelector('#compare-bar');
+  const compare = createCompare({ sheet, stage, container: canvas, getState: () => state });
+  compareRef = compare;
+  let compareMode = 'overlay';
+  async function openCompare(versionNumber) {
+    const v = versions.find((x) => x.version === Number(versionNumber)) || versions[0];
+    if (!v || !compareBar) return;
+    if (state.mode !== 'view') setMode('view');
+    markup.deselect();
+    compareBar.classList.remove('hidden');
+    compareBar.querySelector('#compare-version').value = v.version;
+    compareBar.querySelectorAll('[data-cmode]').forEach((b) => b.classList.toggle('active', b.dataset.cmode === compareMode));
+    compareBar.querySelector('#compare-legend').classList.toggle('hidden', compareMode !== 'overlay');
+    view.querySelector('#compare-btn')?.classList.add('btn-active');
+    stage.classList.add('comparing');
+    markup.setVisible(false);
+    // En la cortina la versión actual sigue redibujándose nítida; en la superposición la sustituye la diferencia
+    pdfLayer.setEnabled(compareMode !== 'overlay');
+    showHint(compareMode === 'overlay' ? 'Preparando la comparación...' : '');
+    try {
+      await compare.show(v, compareMode);
+      if (compare.aspectMismatch(v) > 0.015) toast('Las versiones tienen distinto tamaño de hoja: la comparación puede no coincidir exactamente', 'error');
+      showHint(compareMode === 'curtain' ? 'Arrastra la cortina ⇔ para ver una versión u otra' : '');
+    } catch (err) {
+      toast(err.message || 'No se pudo comparar', 'error');
+      closeCompare();
+    }
+  }
+  function closeCompare() {
+    if (!compareBar) return;
+    compare.close();
+    compareBar.classList.add('hidden');
+    view.querySelector('#compare-btn')?.classList.remove('btn-active');
+    stage.classList.remove('comparing');
+    applyVisible();
+    pdfLayer.setEnabled(true);
+    showHint('');
+  }
+  if (compareBar) {
+    view.querySelector('#compare-btn').onclick = () => (compare.active() ? closeCompare() : openCompare(versions[0].version));
+    compareBar.addEventListener('pointerdown', (e) => e.stopPropagation());
+    compareBar.querySelector('#compare-version').onchange = (e) => openCompare(e.target.value);
+    compareBar.querySelectorAll('[data-cmode]').forEach((b) =>
+      (b.onclick = () => {
+        compareMode = b.dataset.cmode;
+        openCompare(compareBar.querySelector('#compare-version').value);
+      })
+    );
+    compareBar.querySelector('#compare-close').onclick = closeCompare;
+  }
+  const leaveCompare = () => compare.active() && closeCompare();
+  markupBtn.addEventListener('click', leaveCompare, true);
+  addBtn.addEventListener('click', leaveCompare, true);
+
   // ---------- Estado inicial ----------
   drawPins();
   applyVisible();
@@ -613,6 +690,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   await new Promise((r) => requestAnimationFrame(r));
   fit();
   setMode(state.mode);
+  if (params.get('compare')) openCompare(params.get('compare'));
   const focusId = params.get('task');
   const focus = focusId && ctx.tasks.find((t) => t.id === focusId && t.sheetId === sheet.id && t.x != null);
   if (focus) {

@@ -110,6 +110,7 @@ async function route() {
   const [path, query = ''] = location.hash.split('?');
   const parts = path.replace(/^#\/?/, '').split('/').filter(Boolean);
   closeTaskDrawer();
+  document.getElementById('modal-root').innerHTML = ''; // los diálogos no sobreviven a un cambio de pantalla
 
   if (parts[0] !== 'p' || !parts[1]) {
     document.title = 'ObraPlan · Proyectos';

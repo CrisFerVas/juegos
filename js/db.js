@@ -323,7 +323,8 @@ export async function importProject(backup) {
   }
   for (const m of backup.members || []) await db.put('members', { ...m, id: remap(m.id), projectId: pid });
   for (const s of backup.sheets || []) {
-    await db.put('sheets', { ...s, id: remap(s.id), projectId: pid, fileId: remap(s.fileId), thumbId: remap(s.thumbId), pdfFileId: remap(s.pdfFileId) });
+    const files = (v) => ({ fileId: remap(v.fileId), thumbId: remap(v.thumbId), pdfFileId: remap(v.pdfFileId) });
+    await db.put('sheets', { ...s, id: remap(s.id), projectId: pid, ...files(s), versions: (s.versions || []).map((v) => ({ ...v, ...files(v) })) });
   }
   for (const m of backup.markups || []) {
     await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId: remap(m.sheetId) });

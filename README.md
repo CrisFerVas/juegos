@@ -70,7 +70,8 @@ js/db.js                Modelo de datos y persistencia (IndexedDB), bandeja de c
 js/sync.js              Cuentas, roles y motor de sincronización con el servidor
 js/media.js             PDF → imagen base sin pérdida (pdf.js), miniaturas, compresión de fotos, plano demo
 js/hires.js             Redibujado nítido desde el PDF original al hacer zoom en el visor
-js/markup.js            Anotaciones sobre el plano (dibujo, formas, nubes, texto, borrador)
+js/markup.js            Anotaciones y mediciones sobre el plano
+js/compare.js           Comparación de versiones (superposición de colores y cortina)
 js/ui.js                Utilidades de interfaz (modales, avisos, formato)
 js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, team, settings
 server/app.js           API HTTP (cuentas, permisos, sincronización, archivos) y servidor de la app

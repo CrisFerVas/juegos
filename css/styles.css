@@ -457,3 +457,43 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 .scale-chip { border: 1px dashed var(--warn); background: transparent; color: var(--text); border-radius: 99px; padding: 6px 10px; font: 600 .78rem var(--font); cursor: pointer; white-space: nowrap; }
 .scale-chip.scale-set { border: 1px solid var(--accent); background: var(--accent-soft); }
 .markup-bar { flex-wrap: wrap; justify-content: center; overflow: visible; row-gap: 4px; }
+
+/* ---------- Comparar versiones ---------- */
+.stage .compare-overlay, .stage .compare-old { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.stage.comparing .pins { visibility: hidden; }
+.compare-bar {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px;
+  max-width: calc(100% - 24px); background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, .2); font-size: .85rem;
+}
+.compare-pick { display: flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+.compare-pick select { width: auto; padding: 5px 8px; }
+.compare-legend { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted); }
+.compare-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.compare-legend i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.compare-divider { position: absolute; top: 0; bottom: 0; width: 0; z-index: 3; pointer-events: none; border-left: 2px solid var(--accent); }
+.compare-handle {
+  position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none;
+  width: 44px; height: 44px; border-radius: 50%; border: 2px solid #fff; background: var(--accent); color: #fff;
+  font-size: 1.1rem; cursor: ew-resize; box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
+}
+.compare-tag { position: absolute; top: 76px; white-space: nowrap; background: rgba(15, 23, 42, .85); color: #fff; font-size: .75rem; font-weight: 600; padding: 3px 8px; border-radius: 99px; }
+.compare-tag.left { right: 10px; }
+.compare-tag.right { left: 10px; }
+.version-list { list-style: none; margin: 4px 0 10px; padding: 0; border: 1px solid var(--border); border-radius: 8px; }
+.version-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.version-list li:last-child { border-bottom: 0; }
+.version-actions { display: flex; align-items: center; gap: 4px; }
+@media (max-width: 900px) {
+  .compare-bar { left: 8px; right: 8px; transform: none; max-width: none; top: 8px; }
+  .compare-tag { top: 150px; }
+}
+.stage > .hires { z-index: 1; }
+.stage > .compare-overlay { z-index: 1; }
+.stage > .compare-diff { position: absolute; z-index: 2; pointer-events: none; }
+.stage > .compare-old-wrap { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: #fff; }
+.compare-old-wrap > img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.compare-old-wrap > .hires { position: absolute; z-index: 1; }
+.stage > .markups { z-index: 3; }
+.stage > .pins { z-index: 4; }
