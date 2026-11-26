@@ -4,8 +4,13 @@ import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 
 // Los filtros se mantienen mientras la sesión esté abierta.
-const filters = { q: '', status: 'open', category: '', assignee: '', sheet: '', overdue: false, sort: 'number', mode: 'list' };
+const filters = { q: '', status: 'open', category: '', assignee: '', sheet: '', overdue: false, sort: 'number', mode: 'list', expanded: false };
 const selected = new Set();
+
+/** Número de filtros distintos de los valores por defecto (para el botón «Filtros» en el móvil). */
+function activeFilters() {
+  return ['category', 'assignee', 'sheet'].filter((k) => filters[k]).length + (filters.status !== 'open' ? 1 : 0) + (filters.overdue ? 1 : 0) + (filters.sort !== 'number' ? 1 : 0);
+}
 
 function applyFilters(ctx) {
   const q = filters.q.toLowerCase();
@@ -55,8 +60,9 @@ export function renderTasks(view, ctx) {
       </div>
     </div>
 
-    <div class="filters">
+    <div class="filters ${filters.expanded ? 'expanded' : ''}">
       <input type="search" class="search" id="f-q" placeholder="Buscar por texto, #número, ubicación..." value="${esc(filters.q)}" />
+      <button type="button" class="btn filters-more-btn" id="f-more" aria-expanded="${filters.expanded}">Filtros${activeFilters() ? ` · ${activeFilters()}` : ''}</button>
       <select id="f-status" aria-label="Estado">
         ${opt('open', 'Abiertas', filters.status)}${opt('closed', 'Cerradas', filters.status)}${opt('all', 'Todos los estados', filters.status)}
         ${STATUSES.map((s) => opt(s.id, s.label, filters.status)).join('')}
@@ -97,6 +103,10 @@ export function renderTasks(view, ctx) {
   bind('#f-sheet', 'sheet');
   bind('#f-sort', 'sort');
   bind('#f-overdue', 'overdue', 'change', 'checked');
+  view.querySelector('#f-more').addEventListener('click', () => {
+    filters.expanded = !filters.expanded;
+    renderTasks(view, ctx);
+  });
   view.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
     filters.mode = b.dataset.mode;
     renderTasks(view, ctx);

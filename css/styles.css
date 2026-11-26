@@ -581,3 +581,78 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 .camera-thumbs img { width: 30px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid #fff; }
 .camera-done { width: 96px; padding: 12px 8px; border-radius: 99px; border: 0; background: var(--accent); color: #fff; font: 600 .95rem var(--font); cursor: pointer; }
 .camera-done:disabled { background: rgba(255, 255, 255, .2); color: rgba(255, 255, 255, .6); cursor: default; }
+
+/* ---------- Ajustes para pantallas de móvil ---------- */
+.filters-toggle { display: none; }
+@media (max-width: 900px) {
+  /* Visor: barra compacta en dos filas */
+  .viewer-toolbar { gap: 4px 6px; padding: 6px 8px; }
+  .viewer-toolbar > a.icon-btn:first-child { order: 0; }
+  .viewer-toolbar .sheet-switch { order: 1; flex: 1 1 0; min-width: 0; }
+  #toggle-list { order: 2; }
+  .viewer-toolbar > .btn, .viewer-toolbar > .icon-btn:not(#toggle-list):not(:first-child), .viewer-toolbar > .zoom-group { order: 3; }
+  .viewer-toolbar .btn { padding: 8px 10px; min-height: 40px; }
+  .viewer-toolbar .btn-label { display: none; }
+  .viewer-toolbar .filters-toggle { display: inline-grid; }
+  .viewer-toolbar #add-mode { margin-left: auto; }
+  .viewer-toolbar .status-filters { order: 10; display: none; width: 100%; flex-wrap: wrap; padding-top: 4px; }
+  .viewer-toolbar.show-filters .status-filters { display: flex; }
+  .viewer-toolbar.show-filters .filters-toggle { background: var(--accent-soft); color: var(--accent); }
+  .viewer-toolbar .chip { padding: 6px 10px; }
+
+  /* Barra de anotación: las herramientas se reparten en filas sin cortarse */
+  .markup-bar { gap: 6px; padding: 6px 4px; }
+  .markup-group { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; gap: 2px; padding: 0; }
+  .markup-tool { width: 38px; height: 38px; }
+  .markup-color { width: 28px; height: 28px; }
+
+  /* Lista de tareas como tarjetas */
+  .table-wrap { background: none; border: 0; box-shadow: none; overflow: visible; }
+  .table thead { display: none; }
+  .table, .table tbody { display: block; }
+  .table tbody tr {
+    display: grid; grid-template-columns: 30px auto 1fr auto; align-items: center; gap: 6px 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; box-shadow: var(--shadow);
+  }
+  .table tbody td { padding: 0; border: 0; display: block; min-width: 0; }
+  .table tbody td:nth-child(1) { grid-column: 1; grid-row: 1 / 3; }
+  .table tbody td:nth-child(2) { display: none; }
+  .table tbody td:nth-child(3) { grid-column: 2 / 4; grid-row: 1; }
+  .table tbody td:nth-child(4) { grid-column: 2; grid-row: 2; }
+  .table tbody td:nth-child(7) { grid-column: 3; grid-row: 2; font-size: .85rem; }
+  .table tbody td:nth-child(8) { grid-column: 4; grid-row: 1 / 3; }
+  .readonly .table tbody tr { grid-template-columns: 0 auto 1fr auto; column-gap: 0 10px; }
+  .task-title-cell { font-size: .98rem; }
+  .page-head .actions .btn, .page-head .actions .seg-toggle { flex: 1 1 auto; }
+
+  /* Rejillas que no deben exigir más ancho que la pantalla */
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi { padding: 12px; }
+  .kpi-value { font-size: 1.5rem; }
+}
+.cards { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.dash-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
+.settings-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
+.sheets { grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); }
+.board { grid-template-columns: repeat(5, minmax(min(220px, 78vw), 1fr)); }
+.filters-more-btn { display: none; }
+@media (max-width: 900px) {
+  /* Visor: fila 1 = volver + plano + lista; fila 2 = herramientas */
+  .viewer-toolbar .sheet-switch { flex: 1 1 calc(100% - 110px); }
+  .viewer-toolbar > .btn:not(#add-mode) { padding: 8px 12px; }
+
+  /* Tareas: tarjetas limpias y filtros plegados */
+  .table tbody td.hide-sm { display: none; }
+  .filters { flex-wrap: wrap; }
+  .filters .search { flex: 1 1 0; min-width: 0; }
+  .filters-more-btn { display: inline-flex; flex: none; }
+  .filters > select, .filters > .check-label { display: none; }
+  .filters.expanded > select { display: block; flex: 1 1 45%; }
+  .filters.expanded > .check-label { display: inline-flex; }
+  .filters.expanded .filters-more-btn { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .seg-toggle button { flex: 1; }
+
+  /* Anotar: barra más baja */
+  .markup-color { width: 24px; height: 24px; margin: 0 2px; }
+  .markup-bar > .markup-group:nth-last-child(2), .markup-bar > .markup-group:last-child { flex: 0 1 auto; }
+}

@@ -41,17 +41,20 @@ export async function renderViewer(view, ctx, sheetId, params) {
         <select id="sheet-switch" class="sheet-switch" aria-label="Cambiar de plano">
           ${ctx.sheets.map((s) => `<option value="${s.id}" ${s.id === sheet.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
         </select>
+        <button class="icon-btn filters-toggle" id="filters-toggle" title="Filtrar pines del plano" aria-label="Filtros" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
+        </button>
         <div class="status-filters" role="group" aria-label="Filtrar por estado">
           ${STATUSES.map((s) => `<button class="chip active" data-filter="${s.id}" style="--c:${s.color}" title="${s.label}">${s.short}</button>`).join('')}
           <button class="chip active" id="filter-photos" style="--c:#0f172a" title="Mostrar u ocultar las fotos">Fotos</button>
         </div>
         <span class="spacer"></span>
         <button class="btn write photo-btn" id="photo-mode" title="Añadir fotos en un punto del plano">${ICON_PHOTO_PIN}<span>Foto</span></button>
-        <button class="btn write" id="markup-mode" title="Dibujar y escribir sobre el plano">✎ Anotar</button>
+        <button class="btn write" id="markup-mode" title="Dibujar y escribir sobre el plano" aria-label="Anotar"><span aria-hidden="true">✎</span><span class="btn-label">Anotar</span></button>
         <button class="icon-btn" id="markup-visible" title="Ocultar anotaciones" aria-label="Mostrar u ocultar anotaciones" aria-pressed="true">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
-        ${versions.length ? '<button class="btn" id="compare-btn" title="Comparar con versiones anteriores">⇄ Comparar</button>' : ''}
+        ${versions.length ? '<button class="btn" id="compare-btn" title="Comparar con versiones anteriores" aria-label="Comparar versiones"><span aria-hidden="true">⇄</span><span class="btn-label">Comparar</span></button>' : ''}
         <button class="btn btn-primary write" id="add-mode">＋ Tarea</button>
         <div class="zoom-group">
           <button class="icon-btn" id="zoom-out" aria-label="Alejar">−</button>
@@ -633,6 +636,11 @@ export async function renderViewer(view, ctx, sheetId, params) {
   view.querySelector('#zoom-in').onclick = () => zoomCenter(1.4);
   view.querySelector('#zoom-out').onclick = () => zoomCenter(1 / 1.4);
   view.querySelector('#zoom-fit').onclick = fit;
+  view.querySelector('#filters-toggle').onclick = (e) => {
+    const tb = view.querySelector('.viewer-toolbar');
+    const open = tb.classList.toggle('show-filters');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  };
   view.querySelector('#toggle-list').onclick = () => {
     state.listOpen = !state.listOpen;
     drawPins();
