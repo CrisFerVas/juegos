@@ -450,3 +450,7 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
   .markup-group { border-right: 0; padding: 0 2px; flex-wrap: wrap; justify-content: center; }
   .markup-tool { width: 34px; height: 34px; }
 }
+.sel-label { font-weight: 600; font-size: .85rem; color: var(--accent); padding: 0 4px; white-space: nowrap; }
+@media (max-width: 900px) {
+  .viewer-hint { white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 24px); font-size: .82rem; }
+}

@@ -7,6 +7,7 @@ import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '.
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
+const LONG_PRESS_MS = 450;
 
 export async function renderViewer(view, ctx, sheetId, params) {
   const sheet = ctx.sheet(sheetId);
@@ -58,6 +59,16 @@ export async function renderViewer(view, ctx, sheetId, params) {
             <div class="pins" id="pins"></div>
           </div>
           <div class="viewer-hint hidden" id="hint"></div>
+          <div class="markup-bar hidden" id="sel-bar" role="toolbar" aria-label="Anotación seleccionada">
+            <div class="markup-group"><span class="sel-label">Seleccionada</span></div>
+            <div class="markup-group">
+              ${MARKUP_COLORS.map((c) => `<button class="markup-color" data-sel-color="${c.c}" style="--mc:${c.c}" title="${c.n}" aria-label="Cambiar a ${c.n}"></button>`).join('')}
+            </div>
+            <div class="markup-group">
+              <button class="markup-tool" id="sel-delete" title="Eliminar anotación" aria-label="Eliminar anotación"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
+              <button class="btn btn-primary btn-sm" id="sel-done">Listo</button>
+            </div>
+          </div>
           <div class="markup-bar hidden" id="markup-bar" role="toolbar" aria-label="Herramientas de anotación">
             <div class="markup-group">
               ${MARKUP_TOOLS.map((t) => `<button class="markup-tool" data-tool="${t.id}" title="${t.n}" aria-label="${t.n}">${t.i}</button>`).join('')}
@@ -89,10 +100,12 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   // ---------- Transformación ----------
   let pdfLayer = null;
+  let markupRef = null;
   const apply = () => {
     stage.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
     pdfLayer?.schedule();
     stage.style.setProperty('--inv', 1 / state.scale);
+    markupRef?.refreshSelection();
   };
   const fit = () => {
     const r = canvas.getBoundingClientRect();
@@ -178,6 +191,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   };
 
   const setMode = (mode) => {
+    if (mode !== state.mode) markupRef?.deselect();
     state.mode = mode;
     canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place');
     canvas.classList.toggle('mode-draw', mode === 'draw');
@@ -215,13 +229,38 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const markupBar = view.querySelector('#markup-bar');
   const markupBtn = view.querySelector('#markup-mode');
   const markup = createMarkupLayer({ ctx, sheet, stage, getScale: () => state.scale });
+  markupRef = markup;
+  const canTouchMarkups = () => canEdit(ctx.project.id) && markupsVisible && ['view', 'draw'].includes(state.mode);
   const drawTool = () => (state.mode === 'draw' ? markup.settings.tool : null);
+  const selBar = view.querySelector('#sel-bar');
+  selBar.addEventListener('pointerdown', (e) => e.stopPropagation());
+  markup.onSelectionChange((m) => {
+    selBar.classList.toggle('hidden', !m);
+    markupBar.classList.toggle('hidden', !!m || state.mode !== 'draw');
+    if (m) {
+      selBar.querySelectorAll('[data-sel-color]').forEach((b) => b.classList.toggle('active', b.dataset.selColor === m.color));
+      showHint('Arrastra para mover · usa los círculos para cambiar el tamaño');
+    } else if (state.mode === 'draw') syncMarkupBar();
+    else showHint('');
+  });
+  selBar.querySelectorAll('[data-sel-color]').forEach((b) =>
+    (b.onclick = async () => {
+      await markup.recolorSelected(b.dataset.selColor);
+      selBar.querySelectorAll('[data-sel-color]').forEach((x) => x.classList.toggle('active', x === b));
+    })
+  );
+  view.querySelector('#sel-delete').onclick = async () => {
+    await markup.deleteSelected();
+    toast('Anotación eliminada');
+  };
+  view.querySelector('#sel-done').onclick = () => markup.deselect();
   function syncMarkupBar() {
     const s = markup.settings;
     markupBar.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === s.tool));
     markupBar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === s.color));
     markupBar.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', Number(b.dataset.width) === s.width));
     view.querySelector('#markup-undo').disabled = !markup.canUndo();
+    if (markup.selected()) return;
     canvas.dataset.tool = s.tool;
     const hints = { hand: 'Arrastra para mover el plano', text: 'Toca el plano donde quieres escribir', eraser: 'Toca o arrastra sobre una anotación para borrarla' };
     showHint(hints[s.tool] || 'Dibuja con un dedo · usa dos dedos para mover y hacer zoom');
@@ -231,7 +270,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
   markupBar.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { markup.setColor(b.dataset.color); syncMarkupBar(); }));
   markupBar.querySelectorAll('[data-width]').forEach((b) => (b.onclick = () => { markup.setWidth(Number(b.dataset.width)); syncMarkupBar(); }));
   view.querySelector('#markup-undo').onclick = async () => { await markup.undo(); syncMarkupBar(); };
-  view.querySelector('#markup-done').onclick = () => setMode('view');
+  view.querySelector('#markup-done').onclick = () => {
+    markup.deselect();
+    setMode('view');
+  };
   markupBtn.onclick = () => setMode(state.mode === 'draw' ? 'view' : 'draw');
   let markupsVisible = true;
   try { markupsVisible = localStorage.getItem('obraplan.markupsVisible') !== '0'; } catch { /* sin almacenamiento */ }
@@ -244,6 +286,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   };
   visBtn.onclick = () => {
     markupsVisible = !markupsVisible;
+    if (!markupsVisible) markup.deselect();
     if (!markupsVisible && state.mode === 'draw') setMode('view');
     try { localStorage.setItem('obraplan.markupsVisible', markupsVisible ? '1' : '0'); } catch { /* sin almacenamiento */ }
     applyVisible();
@@ -252,12 +295,44 @@ export async function renderViewer(view, ctx, sheetId, params) {
   // ---------- Interacción ----------
   const pointers = new Map();
   let gesture = null;
+  let longPress = null;
+  let pressStart = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    clearTimeout(longPress);
+    if (pointers.size === 2 && gesture?.type === 'edit') markup.endEdit();
+
+    // Con una anotación seleccionada: arrastrar un tirador la redimensiona, arrastrarla la mueve
+    if (pointers.size === 1 && markup.selected()) {
+      const p = toPlan(e.clientX, e.clientY);
+      const part = markup.pickSelection(p);
+      if (part) {
+        markup.beginEdit(part, p);
+        gesture = { type: 'edit' };
+        return;
+      }
+      markup.deselect();
+    }
     const tool = drawTool();
+    // Pulsación larga sobre una anotación: seleccionarla
+    if (pointers.size === 1 && canTouchMarkups() && tool !== 'eraser') {
+      const start = { x: e.clientX, y: e.clientY };
+      pressStart = start;
+      longPress = setTimeout(() => {
+        if (pointers.size !== 1 || !gesture || gesture.moved || !['pan', 'draw'].includes(gesture.type)) return;
+        const p = toPlan(start.x, start.y);
+        const item = markup.hitTest(p);
+        if (!item) return;
+        if (gesture.type === 'draw') markup.cancel();
+        markup.select(item);
+        markup.beginEdit('move', p);
+        gesture = { type: 'edit' };
+        navigator.vibrate?.(15);
+      }, LONG_PRESS_MS);
+    }
     if (pointers.size === 1 && tool && !['hand', 'text'].includes(tool)) {
       const p = toPlan(e.clientX, e.clientY);
       if (tool === 'eraser') {
@@ -279,6 +354,11 @@ export async function renderViewer(view, ctx, sheetId, params) {
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId) || !gesture) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > TAP_TOLERANCE) {
+      clearTimeout(longPress);
+      pressStart = null;
+    }
+    if (gesture.type === 'edit') return markup.editTo(toPlan(e.clientX, e.clientY));
     if (gesture.type === 'draw') return markup.move(toPlan(e.clientX, e.clientY));
     if (gesture.type === 'erase') return void markup.eraseAt(toPlan(e.clientX, e.clientY)).then(syncMarkupBar);
     if (gesture.type === 'pan') {
@@ -314,7 +394,14 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const endPointer = async (e) => {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
+    clearTimeout(longPress);
+    pressStart = null;
     const g = gesture;
+    if (g?.type === 'edit') {
+      gesture = pointers.size ? { type: 'pan', startX: 0, startY: 0, lastX: [...pointers.values()][0].x, lastY: [...pointers.values()][0].y, moved: true } : null;
+      await markup.endEdit();
+      return syncMarkupBar();
+    }
     if (pointers.size > 0) {
       // Al levantar un dedo del pellizco, continuar paneando con el otro
       const [p] = [...pointers.values()];

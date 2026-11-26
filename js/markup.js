@@ -66,10 +66,9 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.setAttribute('width', W);
   svg.setAttribute('height', H);
-  svg.innerHTML = '<g class="markups-saved"></g><g class="markups-draft"></g>';
+  svg.innerHTML = '<g class="markups-saved"></g><g class="markups-draft"></g><g class="markups-sel"></g>';
   stage.insertBefore(svg, stage.querySelector('.pins'));
-  const savedG = svg.firstChild;
-  const draftG = svg.lastChild;
+  const [savedG, draftG, selG] = svg.children;
 
   let items = [];
   let draft = null;
@@ -149,10 +148,16 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
   function render() {
     savedG.innerHTML = items.map(shapeSVG).join('');
     draftG.innerHTML = draft ? shapeSVG(draft) : '';
+    renderSelection();
   }
 
   async function load() {
+    if (edit) return; // no interrumpir una edición en curso
     items = (await db.byProject('markups', ctx.project.id)).filter((m) => m.sheetId === sheet.id).sort((a, b) => a.createdAt - b.createdAt);
+    if (sel) {
+      sel = items.find((m) => m.id === sel.id) || null;
+      if (!sel) onSelect(null);
+    }
     render();
   }
 
@@ -256,11 +261,8 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
   }
   function hit(m, x, y, tol) {
     if (m.type === 'text') {
-      const fs = m.fontSize * W;
-      const lines = String(m.text).split('\n');
-      const w = Math.max(...lines.map((l) => l.length)) * fs * 0.62;
-      const [ax, ay] = px(m.points[0]);
-      return x >= ax - tol && x <= ax + w + tol && y >= ay - fs - tol && y <= ay + (lines.length - 1) * fs * 1.2 + fs * 0.3 + tol;
+      const [x0, y0, x1, y1] = bbox(m);
+      return x >= x0 - tol && x <= x1 + tol && y >= y0 - tol && y <= y1 + tol;
     }
     const o = outline(m);
     const t = tol + (m.width * W) / 2;
@@ -273,6 +275,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
     for (let i = items.length - 1; i >= 0; i--) {
       if (!hit(items[i], x, y, tol)) continue;
       const [doc] = items.splice(i, 1);
+      if (sel?.id === doc.id) deselect();
       render();
       await db.del('markups', doc.id);
       undoStack.push({ op: 'del', doc });
@@ -284,19 +287,206 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
   async function undo() {
     const last = undoStack.pop();
     if (!last) return false;
+    if (last.op === 'edit') {
+      const item = items.find((m) => m.id === last.before.id);
+      if (item) {
+        Object.assign(item, structuredClone(last.before));
+        await db.put('markups', item);
+        render();
+      }
+      return true;
+    }
     if (last.op === 'add') {
+      if (sel?.id === last.doc.id) deselect();
       items = items.filter((m) => m.id !== last.doc.id);
       render();
       await db.del('markups', last.doc.id);
     } else {
       // Un documento borrado no se puede recuperar con el mismo identificador: se vuelve a crear.
       const { id, _rev, ...rest } = last.doc;
-      await persist(rest);
+      const restored = await persist(rest);
+      // Los cambios anteriores de esa anotación pasan a referirse a la restaurada
+      for (const u of undoStack) if (u.op === 'edit' && u.before.id === id) u.before.id = restored.id;
     }
     return true;
   }
 
+  // ---------- Selección, mover y redimensionar ----------
+  let sel = null; // anotación seleccionada (objeto de `items`)
+  let edit = null; // { handle, start, orig, box }
+  let onSelect = () => {};
+
+  /** Caja de la anotación en píxeles del plano: [x0, y0, x1, y1]. */
+  function bbox(m) {
+    if (m.type === 'text') {
+      // Medida real del texto ya dibujado; si aún no existe, una estimación
+      const el = m.id && savedG.querySelector(`[data-markup="${CSS.escape(m.id)}"] text`);
+      if (el) {
+        try {
+          const b = el.getBBox();
+          if (b.width) return [b.x, b.y, b.x + b.width, b.y + b.height];
+        } catch {
+          /* elemento oculto */
+        }
+      }
+      const fs = m.fontSize * W;
+      const lines = String(m.text).split('\n');
+      const [ax, ay] = px(m.points[0]);
+      return [ax, ay - fs * 0.9, ax + Math.max(...lines.map((l) => l.length)) * fs * 0.62, ay + (lines.length - 1) * fs * 1.2 + fs * 0.3];
+    }
+    const pts = m.points.map(px);
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  }
+  const isSegment = (m) => m.type === 'line' || m.type === 'arrow';
+  function handles(m) {
+    if (isSegment(m)) return [['p0', px(m.points[0])], ['p1', px(m.points[m.points.length - 1])]];
+    const [x0, y0, x1, y1] = bbox(m);
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const all = [['nw', [x0, y0]], ['n', [mx, y0]], ['ne', [x1, y0]], ['e', [x1, my]], ['se', [x1, y1]], ['s', [mx, y1]], ['sw', [x0, y1]], ['w', [x0, my]]];
+    return m.type === 'text' ? all.filter(([h]) => h.length === 2) : all;
+  }
+
+  function renderSelection() {
+    if (!sel) {
+      selG.innerHTML = '';
+      return;
+    }
+    const k = 1 / getScale();
+    let out = '';
+    if (!isSegment(sel)) {
+      const [x0, y0, x1, y1] = bbox(sel);
+      const pad = 6 * k;
+      out += `<rect x="${x0 - pad}" y="${y0 - pad}" width="${x1 - x0 + pad * 2}" height="${y1 - y0 + pad * 2}" fill="rgba(15,118,110,.06)"
+        stroke="#0f766e" stroke-width="${1.5 * k}" stroke-dasharray="${6 * k} ${4 * k}"/>`;
+    }
+    for (const [, [x, y]] of handles(sel)) {
+      out += `<circle cx="${x}" cy="${y}" r="${7 * k}" fill="#fff" stroke="#0f766e" stroke-width="${2.5 * k}"/>`;
+    }
+    selG.innerHTML = out;
+  }
+
+  /** Anotación bajo un punto (la de más arriba), o null. */
+  function hitTest(p) {
+    const x = p.x * W, y = p.y * H;
+    const tol = 12 / getScale();
+    for (let i = items.length - 1; i >= 0; i--) {
+      const m = items[i];
+      if (hit(m, x, y, tol)) return m;
+      // Las figuras cerradas también se pueden coger por dentro
+      if (['rect', 'ellipse', 'cloud'].includes(m.type)) {
+        const [x0, y0, x1, y1] = bbox(m);
+        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return m;
+      }
+    }
+    return null;
+  }
+
+  function select(m) {
+    sel = m;
+    renderSelection();
+    onSelect(sel);
+  }
+  function deselect() {
+    if (!sel) return;
+    sel = null;
+    edit = null;
+    renderSelection();
+    onSelect(null);
+  }
+
+  /** ¿Qué parte de la selección hay bajo el punto? Un tirador, 'move' o null. */
+  function pickSelection(p) {
+    if (!sel) return null;
+    const x = p.x * W, y = p.y * H;
+    const tol = 16 / getScale();
+    for (const [h, [hx, hy]] of handles(sel)) if (Math.hypot(x - hx, y - hy) <= tol) return h;
+    if (isSegment(sel)) return hit(sel, x, y, tol) ? 'move' : null;
+    const [x0, y0, x1, y1] = bbox(sel);
+    return x >= x0 - tol && x <= x1 + tol && y >= y0 - tol && y <= y1 + tol ? 'move' : null;
+  }
+
+  function beginEdit(handle, p) {
+    if (!sel) return;
+    edit = { handle, start: [p.x * W, p.y * H], orig: structuredClone(sel), box: bbox(sel), changed: false };
+  }
+
+  function editTo(p) {
+    if (!edit || !sel) return;
+    const { handle, start, orig, box } = edit;
+    const x = p.x * W, y = p.y * H;
+    const dx = x - start[0], dy = y - start[1];
+    edit.changed = edit.changed || Math.hypot(dx, dy) > 0.5;
+    const norm = ([px0, py0]) => [px0 / W, py0 / H];
+    if (handle === 'move') {
+      sel.points = orig.points.map(([qx, qy]) => [qx + dx / W, qy + dy / H]);
+    } else if (handle === 'p0' || handle === 'p1') {
+      sel.points = orig.points.map((q) => [...q]);
+      sel.points[handle === 'p0' ? 0 : sel.points.length - 1] = norm([x, y]);
+    } else {
+      let [x0, y0, x1, y1] = box;
+      if (handle.includes('w')) x0 += dx;
+      if (handle.includes('e')) x1 += dx;
+      if (handle.includes('n')) y0 += dy;
+      if (handle.includes('s')) y1 += dy;
+      if (orig.type === 'text') {
+        // El texto se escala de forma proporcional desde la esquina opuesta
+        const k = Math.max(0.15, (y1 - y0) / (box[3] - box[1]));
+        sel.fontSize = orig.fontSize * k;
+        const newH = (box[3] - box[1]) * k, newW = (box[2] - box[0]) * k;
+        const left = handle.includes('w') ? box[2] - newW : box[0];
+        const top = handle.includes('n') ? box[3] - newH : box[1];
+        // El punto de anclaje (línea base) guarda la misma proporción respecto a la caja
+        const [ax, ay] = px(orig.points[0]);
+        sel.points = [norm([left + (ax - box[0]) * k, top + (ay - box[1]) * k])];
+      } else {
+        const bw = box[2] - box[0], bh = box[3] - box[1];
+        sel.points = orig.points.map(([qx, qy]) => {
+          const [ox, oy] = [qx * W, qy * H];
+          return norm([bw ? x0 + ((ox - box[0]) / bw) * (x1 - x0) : ox + (x0 - box[0]), bh ? y0 + ((oy - box[1]) / bh) * (y1 - y0) : oy + (y0 - box[1])]);
+        });
+      }
+    }
+    savedG.innerHTML = items.map(shapeSVG).join('');
+    renderSelection();
+  }
+
+  async function endEdit() {
+    const e = edit;
+    edit = null;
+    if (!e || !sel || !e.changed) return;
+    sel.points = sel.points.map(([qx, qy]) => [round(qx), round(qy)]);
+    if (sel.fontSize) sel.fontSize = round(sel.fontSize);
+    await db.put('markups', sel);
+    undoStack.push({ op: 'edit', before: e.orig });
+    render();
+  }
+
+  async function recolorSelected(color) {
+    if (!sel || sel.color === color) return;
+    const before = structuredClone(sel);
+    sel.color = color;
+    render(); // se ve al instante; después se guarda
+    undoStack.push({ op: 'edit', before });
+    await db.put('markups', sel);
+  }
+
+  async function deleteSelected() {
+    if (!sel) return;
+    const doc = sel;
+    deselect();
+    items = items.filter((m) => m.id !== doc.id);
+    render();
+    await db.del('markups', doc.id);
+    undoStack.push({ op: 'del', doc });
+  }
+
   return {
+    hitTest, select, deselect, pickSelection, beginEdit, editTo, endEdit, recolorSelected, deleteSelected,
+    selected: () => sel,
+    isEditing: () => !!edit,
+    refreshSelection: renderSelection,
+    onSelectionChange: (fn) => (onSelect = fn),
     settings,
     setTool: (t) => { settings.tool = t; saveSettings(); },
     setColor: (c) => { settings.color = c; saveSettings(); },
