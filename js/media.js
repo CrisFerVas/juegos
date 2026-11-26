@@ -11,7 +11,10 @@ function loadPdfJs() {
     const s = document.createElement('script');
     s.src = `${PDFJS_BASE}/pdf.min.js`;
     s.onload = () => {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`;
+      // El worker se crea desde un blob local que importa el script del CDN: evita el bloqueo
+      // de workers de otro origen (si aun así falla, pdf.js usa su modo sin worker).
+      const shim = new Blob([`importScripts('${PDFJS_BASE}/pdf.worker.min.js');`], { type: 'text/javascript' });
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(shim);
       resolve(window.pdfjsLib);
     };
     s.onerror = () => {
