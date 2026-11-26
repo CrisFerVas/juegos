@@ -1,6 +1,7 @@
 import { db, STATUSES, statusOf, createTask, saveTask, saveFile, fileUrl, deleteFile, isOverdue, uid } from '../db.js';
 import { esc, modal, toast, confirmDialog, fmtDateTime, choosePhotos, userName } from '../ui.js';
 import { savePhotos } from '../media.js';
+import { mountAnnotatedPhoto, openPhotoAnnotator, deletePhotoMarkups } from '../photoannotate.js';
 import { canEdit } from '../sync.js';
 
 let drawer = null;
@@ -212,7 +213,10 @@ async function renderDrawer(ctx, task) {
   drawer.querySelector('[data-act=close]').onclick = closeTaskDrawer;
   drawer.querySelector('[data-act=delete]').onclick = async () => {
     if (!(await confirmDialog(`¿Eliminar la tarea #${task.number}? Esta acción no se puede deshacer.`))) return;
-    for (const id of task.photoIds) await deleteFile(id);
+    for (const id of task.photoIds) {
+      await deleteFile(id);
+      await deletePhotoMarkups(ctx.project.id, id);
+    }
     await db.del('tasks', task.id);
     closeTaskDrawer();
     toast('Tarea eliminada');
@@ -292,13 +296,30 @@ async function renderDrawer(ctx, task) {
   });
   drawer.querySelectorAll('[data-photo]').forEach((img) =>
     img.addEventListener('click', () => {
-      modal({ title: `Foto ${Number(img.dataset.photo) + 1} · Tarea #${task.number}`, body: `<img class="lightbox-img" src="${img.src}" alt="" />`, wide: true });
+      const fileId = task.photoIds[Number(img.dataset.photo)];
+      const editable = canEdit(ctx.project.id);
+      const show = () => {
+        const { el, close } = modal({
+          title: `Foto ${Number(img.dataset.photo) + 1} · Tarea #${task.number}`,
+          full: true,
+          body: `<div class="pv"><div class="pv-stage"><div class="pv-photo" id="tp-photo"></div></div>
+            ${editable ? '<div class="pv-info"><div class="pv-actions"><button type="button" class="btn btn-primary" id="tp-annotate">✎ Anotar foto</button></div></div>' : ''}</div>`,
+        });
+        mountAnnotatedPhoto(el.querySelector('#tp-photo'), ctx, fileId);
+        el.querySelector('#tp-annotate')?.addEventListener('click', async () => {
+          await openPhotoAnnotator(ctx, fileId);
+          close();
+          show(); // se vuelve a mostrar con las anotaciones nuevas
+        });
+      };
+      show();
     })
   );
   drawer.querySelectorAll('[data-delphoto]').forEach((b) =>
     b.addEventListener('click', async () => {
       if (!(await confirmDialog('¿Eliminar esta foto?'))) return;
       await deleteFile(b.dataset.delphoto);
+      await deletePhotoMarkups(ctx.project.id, b.dataset.delphoto);
       task.photoIds = task.photoIds.filter((id) => id !== b.dataset.delphoto);
       await save('Foto eliminada');
     })

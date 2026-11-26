@@ -327,7 +327,9 @@ export async function importProject(backup) {
     await db.put('sheets', { ...s, id: remap(s.id), projectId: pid, ...files(s), versions: (s.versions || []).map((v) => ({ ...v, ...files(v) })) });
   }
   for (const m of backup.markups || []) {
-    await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId: remap(m.sheetId), ...(m.photoIds ? { photoIds: m.photoIds.map(remap) } : {}) });
+    // Las anotaciones de fotos apuntan a la foto ('photo:<id>'), no a un plano
+    const sheetId = String(m.sheetId || '').startsWith('photo:') ? `photo:${remap(m.sheetId.slice(6))}` : remap(m.sheetId);
+    await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId, ...(m.photoIds ? { photoIds: m.photoIds.map(remap) } : {}) });
   }
   for (const t of backup.tasks || []) {
     await db.put('tasks', {

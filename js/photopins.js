@@ -5,6 +5,7 @@
 import { db, uid, fileUrl, fileBlob, saveFile, deleteFile } from './db.js';
 import { esc, modal, toast, confirmDialog, choosePhotos, userName, fmtDateTime, ICON_PHOTO_PIN } from './ui.js';
 import { savePhotos } from './media.js';
+import { mountAnnotatedPhoto, openPhotoAnnotator, deletePhotoMarkups, copyPhotoMarkups } from './photoannotate.js';
 
 export async function loadPhotoPins(projectId, sheetId) {
   return (await db.byProject('markups', projectId)).filter((m) => m.type === 'photo' && m.sheetId === sheetId);
@@ -78,6 +79,7 @@ export async function addPhotoPin(ctx, sheet, point) {
  */
 export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTask }) {
   let index = 0;
+  let current = null; // foto montada (con anotaciones)
   const urls = await Promise.all(pin.photoIds.map(fileUrl));
   const { el, close } = modal({ title: pin.caption || 'Fotos', full: true, body: '<div class="pv"></div>' });
   const root = el.querySelector('.pv');
@@ -88,7 +90,7 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
     titleEl.textContent = n > 1 ? `Foto ${index + 1} de ${n}` : 'Foto';
     root.innerHTML = `
       <div class="pv-stage">
-        ${urls[index] ? `<img class="pv-img" src="${urls[index]}" alt="Foto ${index + 1}" draggable="false" />` : '<p class="muted">Foto no disponible sin conexión</p>'}
+        <div class="pv-photo" id="pv-photo"></div>
         ${n > 1 ? `
           <button type="button" class="pv-nav prev" aria-label="Foto anterior" ${index === 0 ? 'disabled' : ''}>‹</button>
           <button type="button" class="pv-nav next" aria-label="Foto siguiente" ${index === n - 1 ? 'disabled' : ''}>›</button>
@@ -101,12 +103,22 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
           : pin.caption ? `<p>${esc(pin.caption)}</p>` : ''}
         <div class="pv-actions">
           ${canEdit ? `
+            <button type="button" class="btn btn-primary" data-pv="annotate">✎ Anotar foto</button>
             <button type="button" class="btn" data-pv="add">＋ Añadir fotos</button>
-            <button type="button" class="btn btn-primary" data-pv="task">Crear tarea con las fotos</button>
+            <button type="button" class="btn" data-pv="task">Crear tarea con las fotos</button>
             <button type="button" class="btn" data-pv="delete-one">Eliminar esta foto</button>
             <button type="button" class="btn btn-danger" data-pv="delete-all">Eliminar punto</button>` : ''}
         </div>
       </div>`;
+    // Foto con sus anotaciones
+    mountAnnotatedPhoto(root.querySelector('#pv-photo'), ctx, pin.photoIds[index]).then((v) => {
+      if (current) current.destroy();
+      current = v;
+    });
+    root.querySelector('[data-pv=annotate]')?.addEventListener('click', async () => {
+      await openPhotoAnnotator(ctx, pin.photoIds[index]);
+      draw();
+    });
     root.querySelector('.prev')?.addEventListener('click', () => go(-1));
     root.querySelector('.next')?.addEventListener('click', () => go(1));
     root.querySelector('#pv-caption')?.addEventListener('change', async (e) => {
@@ -132,7 +144,10 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
       const copies = [];
       for (const id of pin.photoIds) {
         const blob = await fileBlob(id);
-        if (blob) copies.push(await saveFile(ctx.project.id, blob, 'foto.jpg'));
+        if (!blob) continue;
+        const copy = await saveFile(ctx.project.id, blob, 'foto.jpg');
+        await copyPhotoMarkups(ctx.project.id, id, copy); // las anotaciones viajan con la foto
+        copies.push(copy);
       }
       close();
       onCreateTask?.(pin, copies);
@@ -150,6 +165,7 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
         draw();
       }
       await deleteFile(id);
+      await deletePhotoMarkups(ctx.project.id, id);
       toast('Foto eliminada');
       onChange?.();
     });
@@ -157,7 +173,10 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
       const n = pin.photoIds.length;
       if (!(await confirmDialog(`¿Eliminar este punto y sus ${n} foto(s)?`))) return;
       await db.del('markups', pin.id);
-      for (const id of pin.photoIds) await deleteFile(id);
+      for (const id of pin.photoIds) {
+        await deleteFile(id);
+        await deletePhotoMarkups(ctx.project.id, id);
+      }
       close();
       toast('Fotos eliminadas');
       onChange?.();
@@ -173,7 +192,7 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
   // Deslizar con el dedo para cambiar de foto
   let sx = null;
   root.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.pv-img')) sx = e.clientX;
+    if (e.target.closest('.pv-photo')) sx = e.clientX;
   });
   root.addEventListener('pointerup', (e) => {
     if (sx == null) return;

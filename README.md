@@ -18,7 +18,7 @@ Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
 | **Planos** | Subida de PDF (cada página se convierte en un plano) e imágenes **conservando la calidad original**: se guarda el PDF y, al hacer zoom, la zona visible se redibuja en vectorial a la resolución de la pantalla. Las imágenes se guardan sin recomprimir. Además, carpetas por disciplina, búsqueda, nuevas versiones del plano manteniendo la posición de las tareas. |
 | **Visor de planos** | Zoom y desplazamiento (rueda, arrastre, pellizco en móvil), crear tareas tocando el plano, pines de colores por estado con número, arrastrar pines para reubicar, filtros por estado, lista lateral de tareas del plano. |
 | **Anotaciones** | Modo “Anotar” en el visor: lápiz, rotulador fluorescente, línea, flecha, rectángulo, elipse, nube de revisión, texto y borrador; 10 colores, 3 grosores y deshacer. **Pulsación larga** sobre una anotación para seleccionarla: moverla, redimensionarla con tiradores, cambiarle el color o eliminarla. Se guardan con el plano, se sincronizan con el equipo y se pueden mostrar u ocultar. |
-| **Fotos en el plano** | Botón 📷 Foto: se toca el punto del plano y se elige **abrir la cámara** (trasera, en móvil/tablet) o **subir desde el dispositivo** (varias a la vez). Iconos de cámara con contador, visor a pantalla completa con deslizamiento, descripción, añadir más fotos, crear una tarea con ellas y arrastrar para reubicar. |
+| **Fotos en el plano** | Botón 📷 Foto: se toca el punto del plano y se elige **abrir la cámara** (trasera, en móvil/tablet) o **subir desde el dispositivo** (varias a la vez). Iconos de cámara con contador, visor a pantalla completa con deslizamiento, descripción, añadir más fotos, crear una tarea con ellas y arrastrar para reubicar. **Anotar fotos** con las mismas herramientas que los planos (sin mediciones): lápiz, rotulador, líneas, flechas, formas, nubes, texto y borrador. |
 | **Mediciones** | Calibración de la escala del plano con una cota conocida o con la escala de impresión (1:50, 1:100…, usando el tamaño real del papel del PDF). Herramientas de distancia, recorrido (suma de tramos) y área en m², que se recalculan si cambia la escala. |
 | **Versiones y comparación** | Historial de versiones de cada plano. Comparación por **superposición** (rojo = eliminado, azul = nuevo, gris = sin cambios) o **cortina** deslizante; al hacer zoom se recalcula nítida desde los PDF originales. |
 | **Tareas** | Estados (prioridad alta/media/baja, completada, verificada), responsable, categoría, fechas, ubicación, etiquetas, descripción, lista de verificación, fotos (cámara del móvil), comentarios e historial automático de cambios. |
@@ -76,6 +76,8 @@ js/hires.js             Redibujado nítido desde el PDF original al hacer zoom e
 js/markup.js            Anotaciones y mediciones sobre el plano
 js/compare.js           Comparación de versiones (superposición de colores y cortina)
 js/photopins.js         Fotos de obra colocadas sobre el plano y visor de fotos
+js/photoannotate.js     Anotaciones sobre fotos (editor a pantalla completa)
+js/camera.js            Cámara integrada con vista previa en directo
 js/ui.js                Utilidades de interfaz (modales, avisos, formato)
 js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, team, settings
 server/app.js           API HTTP (cuentas, permisos, sincronización, archivos) y servidor de la app
