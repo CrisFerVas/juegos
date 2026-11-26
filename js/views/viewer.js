@@ -1,8 +1,8 @@
 import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue } from '../db.js';
-import { esc, toast, avatar, fmtDate, userName } from '../ui.js';
+import { esc, toast, avatar, fmtDate, userName, modal } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
-import { createPdfLayer } from '../hires.js';
+import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 
 const MIN_SCALE = 0.05;
@@ -70,6 +70,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
             </div>
           </div>
           <div class="markup-bar hidden" id="markup-bar" role="toolbar" aria-label="Herramientas de anotación">
+            <div class="markup-group">
+              <button class="scale-chip" id="scale-chip" title="Escala del plano para las mediciones">Sin escala</button>
+              <button class="btn btn-sm btn-primary hidden" id="markup-finish">Terminar</button>
+            </div>
             <div class="markup-group">
               ${MARKUP_TOOLS.map((t) => `<button class="markup-tool" data-tool="${t.id}" title="${t.n}" aria-label="${t.n}">${t.i}</button>`).join('')}
             </div>
@@ -228,7 +232,13 @@ export async function renderViewer(view, ctx, sheetId, params) {
   // ---------- Anotaciones ----------
   const markupBar = view.querySelector('#markup-bar');
   const markupBtn = view.querySelector('#markup-mode');
-  const markup = createMarkupLayer({ ctx, sheet, stage, getScale: () => state.scale });
+  const currentSheet = () => ctx.sheet(sheet.id) || sheet;
+  const markup = createMarkupLayer({
+    ctx, sheet, stage,
+    getScale: () => state.scale,
+    getCalibration: () => currentSheet().calibration,
+    onCalibrate: (points) => calibrateDialog(points),
+  });
   markupRef = markup;
   const canTouchMarkups = () => canEdit(ctx.project.id) && markupsVisible && ['view', 'draw'].includes(state.mode);
   const drawTool = () => (state.mode === 'draw' ? markup.settings.tool : null);
@@ -262,15 +272,99 @@ export async function renderViewer(view, ctx, sheetId, params) {
     view.querySelector('#markup-undo').disabled = !markup.canUndo();
     if (markup.selected()) return;
     canvas.dataset.tool = s.tool;
-    const hints = { hand: 'Arrastra para mover el plano', text: 'Toca el plano donde quieres escribir', eraser: 'Toca o arrastra sobre una anotación para borrarla' };
+    const pending = markup.multiPending();
+    const finishBtn = view.querySelector('#markup-finish');
+    finishBtn.classList.toggle('hidden', !pending);
+    finishBtn.textContent = `Terminar (${pending} ${pending === 1 ? 'punto' : 'puntos'})`;
+    updateScaleChip();
+    const needsScale = ['measure', 'path', 'area'].includes(s.tool) && !currentSheet().calibration;
+    const hints = {
+      hand: 'Arrastra para mover el plano',
+      text: 'Toca el plano donde quieres escribir',
+      eraser: 'Toca o arrastra sobre una anotación para borrarla',
+      measure: 'Arrastra de un punto a otro para medir',
+      path: 'Toca cada punto del recorrido y pulsa Terminar',
+      area: 'Toca los vértices; toca el primero (o Terminar) para cerrar',
+      calibrate: 'Traza una línea sobre una cota conocida del plano',
+    };
+    if (needsScale) return showHint('Primero calibra la escala: pulsa «Sin escala» o usa la herramienta Calibrar');
     showHint(hints[s.tool] || 'Dibuja con un dedo · usa dos dedos para mover y hacer zoom');
   }
   markupBar.addEventListener('pointerdown', (e) => e.stopPropagation());
-  markupBar.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => { markup.setTool(b.dataset.tool); syncMarkupBar(); }));
+  markupBar.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = async () => {
+    await markup.finishMulti();
+    markup.setTool(b.dataset.tool);
+    syncMarkupBar();
+  }));
+  view.querySelector('#markup-finish').onclick = async () => { await markup.finishMulti(); syncMarkupBar(); };
+  view.querySelector('#scale-chip').onclick = () => calibrateDialog(null);
+
+  // ---------- Escala / calibración ----------
+  const nfScale = new Intl.NumberFormat('es', { maximumFractionDigits: 2 });
+  function updateScaleChip() {
+    const c = currentSheet().calibration;
+    const chip = view.querySelector('#scale-chip');
+    chip.classList.toggle('scale-set', !!c);
+    chip.textContent = !c ? 'Sin escala' : c.method === 'scale' ? `Escala 1:${nfScale.format(c.scale)}` : 'Escala calibrada';
+  }
+  async function saveCalibration(calibration) {
+    const fresh = (await db.get('sheets', sheet.id)) || currentSheet();
+    if (calibration) fresh.calibration = calibration;
+    else delete fresh.calibration;
+    await db.put('sheets', fresh);
+    await ctx.reload();
+    markup.render();
+    syncMarkupBar();
+  }
+  async function calibrateDialog(points) {
+    const c = currentSheet().calibration;
+    const paperMm = await pdfPageWidthMm(currentSheet());
+    const pxLen = points ? Math.hypot((points[1][0] - points[0][0]) * W, (points[1][1] - points[0][1]) * H) : 0;
+    if (points && pxLen * state.scale < 10) return toast('Traza una línea más larga sobre la cota', 'error');
+    const { el } = modal({
+      title: 'Escala del plano',
+      body: points
+        ? `<p class="muted small">¿Cuánto mide en la realidad la línea que has trazado?</p>
+           <div class="row2">
+             <label class="field"><span>Medida real *</span><input id="cal-len" name="len" inputmode="decimal" required placeholder="Ej. 8,50" /></label>
+             <label class="field"><span>Unidad</span><select id="cal-unit" name="unit"><option value="1">m</option><option value="0.01">cm</option><option value="0.001">mm</option></select></label>
+           </div>`
+        : `${paperMm ? `
+           <label class="field"><span>Escala del plano (1:N)</span>
+             <input id="cal-scale" name="scale" inputmode="decimal" placeholder="Ej. 100" value="${c?.method === 'scale' ? c.scale : ''}" /></label>
+           <p class="muted small">Tamaño del papel: ${nfScale.format(paperMm)} mm de ancho. Usa la escala de impresión que indica el cajetín del plano.</p>
+           <p class="muted small">¿No conoces la escala? Usa la herramienta <strong>Calibrar</strong> y traza una línea sobre una cota del plano.</p>`
+          : `<p>Para medir, primero indica una medida conocida del plano.</p>
+             <p class="muted small">Elige la herramienta <strong>Calibrar</strong> en la barra y traza una línea sobre una cota (por ejemplo, una distancia entre ejes); después escribe cuánto mide en la realidad.</p>`}
+           ${c ? '<hr /><button type="button" class="btn btn-sm" id="cal-clear">Quitar calibración</button>' : ''}`,
+      submitLabel: points || paperMm ? 'Guardar escala' : 'Entendido',
+      onSubmit: async (v) => {
+        const num = (x) => Number(String(x || '').replace(/\s/g, '').replace(',', '.'));
+        if (points) {
+          const meters = num(v.len) * Number(v.unit);
+          if (!(meters > 0)) return toast('Escribe una medida válida', 'error'), false;
+          await saveCalibration({ method: 'line', metersPerWidth: (meters * W) / pxLen, reference: `${v.len} ${({ 1: 'm', 0.01: 'cm', 0.001: 'mm' })[v.unit]}`, by: userName(), at: Date.now() });
+          toast('Escala calibrada');
+        } else if (paperMm) {
+          const n = num(v.scale);
+          if (!(n > 0)) return toast('Escribe la escala, por ejemplo 100 para 1:100', 'error'), false;
+          await saveCalibration({ method: 'scale', scale: n, metersPerWidth: (paperMm * n) / 1000, by: userName(), at: Date.now() });
+          toast(`Escala 1:${nfScale.format(n)} guardada`);
+        }
+      },
+    });
+    el.querySelector('#cal-clear')?.addEventListener('click', async () => {
+      await saveCalibration(null);
+      el.remove();
+      toast('Calibración eliminada');
+    });
+    if (points) markup.setTool(markup.settings.tool === 'calibrate' ? 'measure' : markup.settings.tool);
+  }
   markupBar.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { markup.setColor(b.dataset.color); syncMarkupBar(); }));
   markupBar.querySelectorAll('[data-width]').forEach((b) => (b.onclick = () => { markup.setWidth(Number(b.dataset.width)); syncMarkupBar(); }));
   view.querySelector('#markup-undo').onclick = async () => { await markup.undo(); syncMarkupBar(); };
-  view.querySelector('#markup-done').onclick = () => {
+  view.querySelector('#markup-done').onclick = async () => {
+    await markup.finishMulti();
     markup.deselect();
     setMode('view');
   };
@@ -333,7 +427,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
         navigator.vibrate?.(15);
       }, LONG_PRESS_MS);
     }
-    if (pointers.size === 1 && tool && !['hand', 'text'].includes(tool)) {
+    if (pointers.size === 1 && tool && !['hand', 'text', 'path', 'area'].includes(tool)) {
       const p = toPlan(e.clientX, e.clientY);
       if (tool === 'eraser') {
         gesture = { type: 'erase' };
@@ -432,6 +526,11 @@ export async function renderViewer(view, ctx, sheetId, params) {
     // Toque (tap)
     const p = toPlan(e.clientX, e.clientY);
     if (state.mode === 'draw') {
+      if (['path', 'area'].includes(markup.settings.tool)) {
+        if (!inside(p)) return toast('Toca dentro del plano', 'error');
+        await markup.addVertex(p);
+        return syncMarkupBar();
+      }
       if (markup.settings.tool === 'text') {
         if (!inside(p)) return toast('Toca dentro del plano', 'error');
         markup.addText(p);

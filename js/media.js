@@ -111,7 +111,11 @@ export async function fileToSheets(file, onProgress = () => {}) {
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
       const blob = await canvasToBlob(c, 'image/png');
       const thumb = await thumbFrom(c, c.width, c.height);
-      sheets.push({ name: pdf.numPages > 1 ? `${base} – pág. ${i}` : base, blob, thumb, width: c.width, height: c.height, pdfPage: i });
+      sheets.push({
+        name: pdf.numPages > 1 ? `${base} – pág. ${i}` : base, blob, thumb, width: c.width, height: c.height, pdfPage: i,
+        // Tamaño real del papel (1 pt = 1/72 pulgada): permite calibrar con la escala del plano (1:50, 1:100...)
+        pageWidthMm: Math.round((vp1.width / 72) * 25.4 * 10) / 10,
+      });
       c.width = c.height = 0;
       page.cleanup();
     }

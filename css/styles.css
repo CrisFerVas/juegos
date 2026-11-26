@@ -454,3 +454,6 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 @media (max-width: 900px) {
   .viewer-hint { white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 24px); font-size: .82rem; }
 }
+.scale-chip { border: 1px dashed var(--warn); background: transparent; color: var(--text); border-radius: 99px; padding: 6px 10px; font: 600 .78rem var(--font); cursor: pointer; white-space: nowrap; }
+.scale-chip.scale-set { border: 1px solid var(--accent); background: var(--accent-soft); }
+.markup-bar { flex-wrap: wrap; justify-content: center; overflow: visible; row-gap: 4px; }

@@ -29,6 +29,18 @@ function openDoc(fileId) {
   return docs.get(fileId);
 }
 
+/** Ancho real del papel en mm de un plano PDF (para planos subidos antes de guardarse este dato). */
+export async function pdfPageWidthMm(sheet) {
+  if (sheet.pageWidthMm) return sheet.pageWidthMm;
+  if (!sheet.pdfFileId) return null;
+  try {
+    const page = await (await openDoc(sheet.pdfFileId)).getPage(sheet.pdfPage || 1);
+    return Math.round((page.getViewport({ scale: 1 }).width / 72) * 25.4 * 10) / 10;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * @param sheet     plano (necesita pdfFileId, pdfPage, width)
  * @param stage     elemento transformado que contiene la imagen base y los pines

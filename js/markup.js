@@ -24,11 +24,20 @@ export const MARKUP_TOOLS = [
   { id: 'rect', n: 'Rectángulo', i: ic('<rect x="4" y="6" width="16" height="12" rx="1"/>') },
   { id: 'ellipse', n: 'Elipse', i: ic('<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/>') },
   { id: 'cloud', n: 'Nube de revisión', i: ic('<path d="M7 18a3 3 0 0 1-1-5.8A4 4 0 0 1 13.5 9a3.5 3.5 0 0 1 5.5 3.5A2.8 2.8 0 0 1 18 18z"/>') },
+  { id: 'measure', n: 'Medir distancia', i: ic('<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>') },
+  { id: 'path', n: 'Medir recorrido (toca varios puntos)', i: ic('<path d="M4 19l5-8 5 4 6-10"/><circle cx="4" cy="19" r="1.5"/><circle cx="9" cy="11" r="1.5"/><circle cx="14" cy="15" r="1.5"/><circle cx="20" cy="5" r="1.5"/>') },
+  { id: 'area', n: 'Medir área (toca los vértices)', i: ic('<path d="M5 18l2-12 11 3 1 9z"/><path d="M9 14h6" stroke-dasharray="2 2"/>') },
+  { id: 'calibrate', n: 'Calibrar escala con una cota conocida', i: ic('<path d="M3 12h18M3 9v6M21 9v6"/><path d="M9 6l2 2 4-4"/>') },
   { id: 'text', n: 'Texto', i: ic('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>') },
   { id: 'eraser', n: 'Borrador (toca o arrastra sobre una anotación)', i: ic('<path d="M8 20h12M4.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H7.5z"/><path d="M9 11l5 5"/>') },
 ];
 
 const round = (v) => Math.round(v * 1e5) / 1e5;
+
+const nf2 = new Intl.NumberFormat('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const formatLength = (m) => (m == null ? 'sin escala' : `${nf2.format(m)} m`);
+export const formatArea = (m2) => (m2 == null ? 'sin escala' : `${nf2.format(m2)} m²`);
+export const MEASURE_TYPES = ['measure', 'path', 'area'];
 
 /** Contorno de nube de revisión alrededor de un rectángulo (arcos hacia fuera, sentido horario). */
 function cloudPath(x0, y0, x1, y1, sw) {
@@ -59,7 +68,7 @@ function smoothPath(pts) {
   return d + ` L${last[0]} ${last[1]}`;
 }
 
-export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
+export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration = () => null, onCalibrate = () => {} }) {
   const W = sheet.width, H = sheet.height;
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'markups');
@@ -88,6 +97,39 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
   };
 
   const px = ([x, y]) => [x * W, y * H];
+
+  // ---------- Medición ----------
+  /** Metros por píxel del plano según la calibración actual (o null). */
+  const metersPerPx = () => {
+    const c = getCalibration();
+    return c?.metersPerWidth ? c.metersPerWidth / W : null;
+  };
+  function lengthOf(points, closed = false) {
+    const k = metersPerPx();
+    if (!k) return null;
+    const pts = points.map(px);
+    let sum = 0;
+    for (let i = 1; i < pts.length; i++) sum += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (closed && pts.length > 2) sum += Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]);
+    return sum * k;
+  }
+  function areaOf(points) {
+    const k = metersPerPx();
+    if (!k || points.length < 3) return null;
+    const pts = points.map(px);
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      a += x1 * y2 - x2 * y1;
+    }
+    return (Math.abs(a) / 2) * k * k;
+  }
+  /** Etiqueta con fondo para las medidas. */
+  function label(x, y, text, color, fs) {
+    const w = text.length * fs * 0.58 + fs * 0.8, h = fs * 1.45;
+    return `<g class="measure-label"><rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${h / 4}" fill="#fff" fill-opacity="0.92" stroke="${color}" stroke-width="${fs * 0.08}"/>
+      <text x="${x}" y="${y + fs * 0.35}" font-size="${fs}" text-anchor="middle" fill="${color === '#ffffff' ? '#111827' : color}" font-family="system-ui, sans-serif" font-weight="700">${esc(text)}</text></g>`;
+  }
 
   function shapeSVG(m) {
     const sw = m.width * W;
@@ -130,6 +172,35 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
       case 'cloud': {
         const [x0, y0, x1, y1] = box();
         inner = `<path d="${cloudPath(x0, y0, x1, y1, sw)}" ${common}/>`;
+        break;
+      }
+      case 'measure':
+      case 'calibrate': {
+        const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+        const t = Math.max(sw * 3, 4);
+        const nx = -Math.sin(ang) * t, ny = Math.cos(ang) * t;
+        const fs = (m.fontSize || 0.006) * W;
+        inner = `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" ${common}${m.type === 'calibrate' ? ` stroke-dasharray="${sw * 3} ${sw * 2}"` : ''}/>
+          <line x1="${a[0] - nx}" y1="${a[1] - ny}" x2="${a[0] + nx}" y2="${a[1] + ny}" ${common}/>
+          <line x1="${b[0] - nx}" y1="${b[1] - ny}" x2="${b[0] + nx}" y2="${b[1] + ny}" ${common}/>`;
+        if (m.type === 'measure') inner += label((a[0] + b[0]) / 2 - nx * 2.2, (a[1] + b[1]) / 2 - ny * 2.2, formatLength(lengthOf([m.points[0], m.points.at(-1)])), m.color, fs);
+        break;
+      }
+      case 'path':
+      case 'area': {
+        const fs = (m.fontSize || 0.006) * W;
+        const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ') + (m.type === 'area' && !m.draft ? ' Z' : '');
+        inner = `<path d="${d}" ${common.replace('fill="none"', m.type === 'area' ? `fill="${color}" fill-opacity="0.15"` : 'fill="none"')}/>`;
+        inner += pts.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${Math.max(sw * 1.2, 2)}" fill="${color}"/>`).join('');
+        if (pts.length >= 2) {
+          if (m.type === 'path') {
+            const [x1, y1] = pts.at(-2), [x2, y2] = pts.at(-1);
+            inner += label((x1 + x2) / 2, (y1 + y2) / 2 - fs * 1.2, formatLength(lengthOf(m.points)), m.color, fs);
+          } else if (pts.length >= 3) {
+            const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+            inner += label(cx, cy, formatArea(areaOf(m.points)), m.color, fs);
+          }
+        }
         break;
       }
       case 'text': {
@@ -185,8 +256,10 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
 
   function start(p) {
     const t = settings.tool;
-    if (!['pen', 'marker', 'line', 'arrow', 'rect', 'ellipse', 'cloud'].includes(t)) return false;
+    if (!['pen', 'marker', 'line', 'arrow', 'rect', 'ellipse', 'cloud', 'measure', 'calibrate'].includes(t)) return false;
     draft = { type: t, color: settings.color, width: strokeWidth(), points: [[p.x, p.y], [p.x, p.y]] };
+    if (t === 'measure') draft.fontSize = labelSize();
+    if (t === 'calibrate') draft.color = '#0f766e';
     if (t === 'pen' || t === 'marker') draft.points = [[p.x, p.y]];
     render();
     return true;
@@ -212,12 +285,39 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
       const [[x0, y0], [x1, y1]] = d.points;
       if (Math.hypot((x1 - x0) * W, (y1 - y0) * H) * getScale() < 4) return; // gesto demasiado corto
     }
+    if (d.type === 'calibrate') return onCalibrate(d.points);
     const doc = await persist(d);
     undoStack.push({ op: 'add', doc });
   }
   function cancel() {
     draft = null;
     draftG.innerHTML = '';
+  }
+
+  // Recorridos y áreas: se construyen punto a punto con toques
+  const labelSize = () => (settings.width * 2.5 + 11) / getScale() / W;
+  function addVertex(p) {
+    const t = settings.tool;
+    if (!draft || draft.type !== t) draft = { type: t, color: settings.color, width: strokeWidth(), fontSize: labelSize(), points: [], draft: true };
+    // En un área, tocar cerca del primer punto la cierra
+    if (t === 'area' && draft.points.length >= 3) {
+      const [fx, fy] = px(draft.points[0]);
+      if (Math.hypot(fx - p.x * W, fy - p.y * H) * getScale() < 18) return finishMulti();
+    }
+    draft.points.push([p.x, p.y]);
+    draftG.innerHTML = shapeSVG(draft);
+    return draft.points.length;
+  }
+  const multiPending = () => (draft && (draft.type === 'path' || draft.type === 'area') ? draft.points.length : 0);
+  async function finishMulti() {
+    const d = draft;
+    draft = null;
+    draftG.innerHTML = '';
+    if (!d || d.points.length < (d.type === 'area' ? 3 : 2)) return 0;
+    delete d.draft;
+    const doc = await persist(d);
+    undoStack.push({ op: 'add', doc });
+    return 0;
   }
 
   function addText(p) {
@@ -255,6 +355,8 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
           const t = (i / 48) * Math.PI * 2;
           return [(x0 + x1) / 2 + ((x1 - x0) / 2) * Math.cos(t), (y0 + y1) / 2 + ((y1 - y0) / 2) * Math.sin(t)];
         });
+      case 'area':
+        return [...pts, pts[0]];
       default:
         return pts.length === 1 ? [pts[0], pts[0]] : pts;
     }
@@ -338,7 +440,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
     return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   }
-  const isSegment = (m) => m.type === 'line' || m.type === 'arrow';
+  const isSegment = (m) => m.type === 'line' || m.type === 'arrow' || m.type === 'measure';
   function handles(m) {
     if (isSegment(m)) return [['p0', px(m.points[0])], ['p1', px(m.points[m.points.length - 1])]];
     const [x0, y0, x1, y1] = bbox(m);
@@ -374,7 +476,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
       const m = items[i];
       if (hit(m, x, y, tol)) return m;
       // Las figuras cerradas también se pueden coger por dentro
-      if (['rect', 'ellipse', 'cloud'].includes(m.type)) {
+      if (['rect', 'ellipse', 'cloud', 'area'].includes(m.type)) {
         const [x0, y0, x1, y1] = bbox(m);
         if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return m;
       }
@@ -494,6 +596,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale }) {
     setVisible: (v) => svg.classList.toggle('hidden', !v),
     canUndo: () => undoStack.length > 0,
     count: () => items.length,
-    load, start, move, end, cancel, addText, eraseAt, undo,
+    load, start, move, end, cancel, addText, eraseAt, undo, addVertex, finishMulti, multiPending, render,
+    lengthOf, areaOf,
   };
 }

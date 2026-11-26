@@ -119,6 +119,7 @@ function uploadDialog(ctx, files) {
               height: p.height,
               pdfFileId,
               pdfPage: p.pdfPage || null,
+              pageWidthMm: p.pageWidthMm || null,
               createdAt: Date.now(),
             });
             count++;
@@ -182,6 +183,7 @@ function editSheet(ctx, sheet) {
       sheet.thumbId = await saveFile(ctx.project.id, page.thumb, sheet.name + ' (miniatura)');
       sheet.pdfFileId = pdf ? await saveFile(ctx.project.id, pdf, file.name) : '';
       sheet.pdfPage = page.pdfPage || null;
+      sheet.pageWidthMm = page.pageWidthMm || null;
       sheet.width = page.width;
       sheet.height = page.height;
       sheet.version = (sheet.version || 1) + 1;
