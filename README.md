@@ -18,6 +18,8 @@ Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
 | **Planos** | Subida de PDF (cada página se convierte en un plano) e imágenes **conservando la calidad original**: se guarda el PDF y, al hacer zoom, la zona visible se redibuja en vectorial a la resolución de la pantalla. Las imágenes se guardan sin recomprimir. Además, carpetas por disciplina, búsqueda, nuevas versiones del plano manteniendo la posición de las tareas. |
 | **Visor de planos** | Zoom y desplazamiento (rueda, arrastre, pellizco en móvil), crear tareas tocando el plano, pines de colores por estado con número, arrastrar pines para reubicar, filtros por estado, lista lateral de tareas del plano. |
 | **Anotaciones** | Modo “Anotar” en el visor: lápiz, rotulador fluorescente, línea, flecha, rectángulo, elipse, nube de revisión, texto y borrador; 10 colores, 3 grosores y deshacer. **Pulsación larga** sobre una anotación para seleccionarla: moverla, redimensionarla con tiradores, cambiarle el color o eliminarla. Se guardan con el plano, se sincronizan con el equipo y se pueden mostrar u ocultar. |
+| **Mediciones** | Calibración de la escala del plano con una cota conocida o con la escala de impresión (1:50, 1:100…, usando el tamaño real del papel del PDF). Herramientas de distancia, recorrido (suma de tramos) y área en m², que se recalculan si cambia la escala. |
+| **Versiones y comparación** | Historial de versiones de cada plano. Comparación por **superposición** (rojo = eliminado, azul = nuevo, gris = sin cambios) o **cortina** deslizante; al hacer zoom se recalcula nítida desde los PDF originales. |
 | **Tareas** | Estados (prioridad alta/media/baja, completada, verificada), responsable, categoría, fechas, ubicación, etiquetas, descripción, lista de verificación, fotos (cámara del móvil), comentarios e historial automático de cambios. |
 | **Lista y tablero** | Filtros (texto, estado, categoría, responsable, plano, vencidas), ordenación, vista Kanban con arrastrar y soltar, acciones masivas (estado, asignación, eliminar). |
 | **Informes** | Exportación a CSV (compatible con Excel) e informe imprimible / PDF con fotos. |
@@ -99,6 +101,5 @@ Los PDF se procesan con [pdf.js](https://mozilla.github.io/pdf.js/), que se carg
 Siguientes fases previstas:
 
 1. **Notificaciones** de asignación y vencimiento (email / push) y recuperación de contraseña.
-2. **Mediciones sobre el plano** (con escala) y comparación de versiones.
-3. **Formularios** (partes diarios, inspecciones, checklists de calidad/seguridad) con plantillas.
-4. **RFI, presupuestos y horas** por tarea; diagrama de Gantt.
+2. **Formularios** (partes diarios, inspecciones, checklists de calidad/seguridad) con plantillas.
+3. **RFI, presupuestos y horas** por tarea; diagrama de Gantt.
