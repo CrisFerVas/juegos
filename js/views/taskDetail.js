@@ -1,6 +1,7 @@
 import { db, STATUSES, statusOf, createTask, saveTask, saveFile, fileUrl, deleteFile, isOverdue, uid } from '../db.js';
 import { esc, modal, toast, confirmDialog, fmtDateTime, pickFiles, userName } from '../ui.js';
 import { resizeImage } from '../media.js';
+import { canEdit } from '../sync.js';
 
 let drawer = null;
 
@@ -77,6 +78,14 @@ export function newTaskForm(ctx, preset = {}) {
   });
 }
 
+/** Vuelve a pintar el panel abierto (p. ej. tras recibir cambios de otra persona). */
+export async function refreshTaskDrawer(ctx) {
+  if (!drawer) return;
+  const task = await db.get('tasks', drawer.dataset.task);
+  if (!task) return closeTaskDrawer();
+  await renderDrawer(ctx, task);
+}
+
 export async function openTaskDrawer(ctx, taskId) {
   const task = await db.get('tasks', taskId);
   if (!task) return;
@@ -103,10 +112,11 @@ async function renderDrawer(ctx, task) {
       <span class="task-number">#${task.number}</span>
       ${isOverdue(task) ? '<span class="pill pill-danger">Vencida</span>' : ''}
       <span class="spacer"></span>
-      <button class="icon-btn" data-act="delete" title="Eliminar tarea" aria-label="Eliminar tarea">🗑</button>
+      <button class="icon-btn write" data-act="delete" title="Eliminar tarea" aria-label="Eliminar tarea">🗑</button>
       <button class="icon-btn" data-act="close" title="Cerrar" aria-label="Cerrar">✕</button>
     </header>
     <div class="drawer-body">
+      <fieldset class="plain" ${canEdit(ctx.project.id) ? '' : 'disabled'}>
       <textarea class="title-input" data-field="title" rows="2">${esc(task.title)}</textarea>
 
       <div class="status-picker">
@@ -134,7 +144,7 @@ async function renderDrawer(ctx, task) {
               <strong>${esc(sheet.name)}</strong>
               <div class="actions">
                 <a class="btn btn-sm" href="#/p/${ctx.project.id}/plans/${sheet.id}?task=${task.id}">Ver en plano</a>
-                <a class="btn btn-sm" href="#/p/${ctx.project.id}/plans/${sheet.id}?place=${task.id}">Reubicar</a>
+                <a class="btn btn-sm write" href="#/p/${ctx.project.id}/plans/${sheet.id}?place=${task.id}">Reubicar</a>
                 <button class="btn btn-sm" data-act="unpin">Quitar</button>
               </div>
             </div>
@@ -169,9 +179,9 @@ async function renderDrawer(ctx, task) {
           ${photoUrls.map((u, i) => `
             <div class="photo">
               <img src="${u}" alt="Foto ${i + 1}" data-photo="${i}" />
-              <button class="photo-del" data-delphoto="${task.photoIds[i]}" aria-label="Eliminar foto">✕</button>
+              <button class="photo-del write" data-delphoto="${task.photoIds[i]}" aria-label="Eliminar foto">✕</button>
             </div>`).join('')}
-          <button class="photo-add" data-act="photo">＋<small>Añadir foto</small></button>
+          <button class="photo-add write" data-act="photo">＋<small>Añadir foto</small></button>
         </div>
       </section>
 
@@ -190,6 +200,7 @@ async function renderDrawer(ctx, task) {
           ${[...task.activity].reverse().map((a) => `<li><span class="muted small">${esc(fmtDateTime(a.at))}</span> ${esc(a.text)}${a.by ? ` <span class="muted">· ${esc(a.by)}</span>` : ''}</li>`).join('')}
         </ul>
       </section>
+      </fieldset>
     </div>`;
 
   const save = async (text) => {

@@ -1,16 +1,24 @@
 // Capa de persistencia local basada en IndexedDB.
-// Almacenes: projects, members, sheets (planos), tasks, files (blobs de imágenes).
+// Almacenes de datos: projects, members, sheets (planos), tasks, files (blobs de imágenes).
+// Almacenes internos: outbox (cambios pendientes de sincronizar) y meta (cursores, etc.).
 
-const DB_NAME = 'obraplan';
-const VERSION = 1;
+let dbName = 'obraplan';
+const VERSION = 2;
 export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files'];
 
 let dbPromise;
 
+/** Cambia la base de datos local (una por usuario en modo servidor). Debe llamarse antes de usarla. */
+export function configureDB(name) {
+  if (name === dbName) return;
+  dbName = name;
+  dbPromise = null;
+}
+
 function open() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, VERSION);
+    const req = indexedDB.open(dbName, VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       for (const name of STORES) {
@@ -18,6 +26,8 @@ function open() {
         const os = db.createObjectStore(name, { keyPath: 'id' });
         if (name !== 'projects') os.createIndex('projectId', 'projectId');
       }
+      if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -25,26 +35,80 @@ function open() {
   return dbPromise;
 }
 
-function run(store, mode, fn) {
+/** Ejecuta `fn(tx)` en una transacción sobre uno o varios almacenes y devuelve lo que retorne `fn` (o el resultado de su petición). */
+function run(stores, mode, fn) {
   return open().then(
     (db) =>
       new Promise((resolve, reject) => {
-        const tx = db.transaction(store, mode);
-        const req = fn(tx.objectStore(store));
-        tx.oncomplete = () => resolve(req ? req.result : undefined);
+        const tx = db.transaction(stores, mode);
+        const out = fn(tx);
+        tx.oncomplete = () => resolve(out instanceof IDBRequest ? out.result : out);
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error);
       })
   );
 }
 
+// ---------- Seguimiento de cambios para la sincronización ----------
+let tracking = false;
+let onLocalChange = null;
+
+/** Activa el registro de cambios locales en la bandeja de salida (modo servidor). */
+export function enableTracking(callback) {
+  tracking = true;
+  onLocalChange = callback;
+}
+
+const outboxEntry = (store, id, projectId, op) => ({ key: `${store}:${id}`, store, id, projectId, op, at: Date.now() + Math.random() });
+
 export const db = {
-  get: (store, id) => run(store, 'readonly', (os) => os.get(id)),
-  all: (store) => run(store, 'readonly', (os) => os.getAll()),
-  byProject: (store, projectId) =>
-    run(store, 'readonly', (os) => os.index('projectId').getAll(projectId)),
-  put: (store, obj) => run(store, 'readwrite', (os) => os.put(obj)).then(() => obj),
-  del: (store, id) => run(store, 'readwrite', (os) => os.delete(id)),
+  get: (store, id) => run(store, 'readonly', (tx) => tx.objectStore(store).get(id)),
+  all: (store) => run(store, 'readonly', (tx) => tx.objectStore(store).getAll()),
+  byProject: (store, projectId) => run(store, 'readonly', (tx) => tx.objectStore(store).index('projectId').getAll(projectId)),
+
+  async put(store, obj) {
+    if (!tracking || !STORES.includes(store)) {
+      await run(store, 'readwrite', (tx) => tx.objectStore(store).put(obj));
+      return obj;
+    }
+    obj._rev = Date.now();
+    await run([store, 'outbox'], 'readwrite', (tx) => {
+      tx.objectStore(store).put(obj);
+      tx.objectStore('outbox').put(outboxEntry(store, obj.id, store === 'projects' ? obj.id : obj.projectId, 'put'));
+    });
+    onLocalChange?.();
+    return obj;
+  },
+
+  async del(store, id) {
+    if (!tracking || !STORES.includes(store)) return run(store, 'readwrite', (tx) => tx.objectStore(store).delete(id));
+    await run([store, 'outbox'], 'readwrite', (tx) => {
+      const os = tx.objectStore(store);
+      os.get(id).onsuccess = (e) => {
+        const obj = e.target.result;
+        os.delete(id);
+        if (obj) tx.objectStore('outbox').put(outboxEntry(store, id, store === 'projects' ? id : obj.projectId, 'del'));
+      };
+    });
+    onLocalChange?.();
+  },
+
+  // Escrituras que llegan del servidor: no generan cambios pendientes.
+  applyRemote: (store, obj) => run(store, 'readwrite', (tx) => tx.objectStore(store).put(obj)),
+  removeRemote: (store, id) => run(store, 'readwrite', (tx) => tx.objectStore(store).delete(id)),
+
+  outboxAll: () => run('outbox', 'readonly', (tx) => tx.objectStore('outbox').getAll()),
+  outboxCount: () => run('outbox', 'readonly', (tx) => tx.objectStore('outbox').count()),
+  /** Elimina una entrada enviada, salvo que haya cambiado mientras tanto (se volverá a enviar). */
+  outboxAck: (entry) =>
+    run('outbox', 'readwrite', (tx) => {
+      const os = tx.objectStore('outbox');
+      os.get(entry.key).onsuccess = (e) => {
+        if (e.target.result && e.target.result.at === entry.at) os.delete(entry.key);
+      };
+    }),
+  metaGet: (key) => run('meta', 'readonly', (tx) => tx.objectStore('meta').get(key)).then((r) => r?.value),
+  metaSet: (key, value) => run('meta', 'readwrite', (tx) => tx.objectStore('meta').put({ key, value })),
 };
 
 export function uid() {
@@ -54,9 +118,15 @@ export function uid() {
 
 // ---------- Archivos (blobs) ----------
 const urlCache = new Map();
+let remoteFileFetcher = null;
+
+/** Permite descargar del servidor los archivos de los que sólo se conocen los metadatos. */
+export function setRemoteFileFetcher(fn) {
+  remoteFileFetcher = fn;
+}
 
 export async function saveFile(projectId, blob, name = '') {
-  const file = { id: uid(), projectId, blob, type: blob.type, name, createdAt: Date.now() };
+  const file = { id: uid(), projectId, blob, type: blob.type, name, size: blob.size, createdAt: Date.now() };
   await db.put('files', file);
   return file.id;
 }
@@ -66,17 +136,38 @@ export async function fileUrl(id) {
   if (urlCache.has(id)) return urlCache.get(id);
   const f = await db.get('files', id);
   if (!f) return '';
+  if (!f.blob) {
+    const blob = remoteFileFetcher ? await remoteFileFetcher(id).catch(() => null) : null;
+    if (!blob) return '';
+    f.blob = blob;
+    await db.applyRemote('files', f);
+  }
   const url = URL.createObjectURL(f.blob);
   urlCache.set(id, url);
   return url;
 }
 
-export async function deleteFile(id) {
+export function forgetFileUrl(id) {
   if (urlCache.has(id)) {
     URL.revokeObjectURL(urlCache.get(id));
     urlCache.delete(id);
   }
+}
+
+export async function deleteFile(id) {
+  forgetFileUrl(id);
   await db.del('files', id);
+}
+
+/** Borra del dispositivo todos los datos de un proyecto sin generar cambios pendientes. */
+export async function removeProjectLocal(projectId) {
+  for (const store of STORES.filter((s) => s !== 'projects')) {
+    for (const it of await db.byProject(store, projectId)) {
+      if (store === 'files') forgetFileUrl(it.id);
+      await db.removeRemote(store, it.id);
+    }
+  }
+  await db.removeRemote('projects', projectId);
 }
 
 // ---------- Proyectos ----------
@@ -93,7 +184,6 @@ export async function createProject(data) {
     address: data.address || '',
     client: data.client || '',
     categories: data.categories || [...DEFAULT_CATEGORIES],
-    taskSeq: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -102,9 +192,15 @@ export async function createProject(data) {
 }
 
 export async function deleteProject(projectId) {
+  if (tracking) {
+    // El servidor elimina todo el contenido al borrar el proyecto.
+    await removeProjectLocal(projectId);
+    await run('outbox', 'readwrite', (tx) => tx.objectStore('outbox').put(outboxEntry('projects', projectId, projectId, 'del')));
+    onLocalChange?.();
+    return;
+  }
   for (const store of STORES.filter((s) => s !== 'projects')) {
-    const items = await db.byProject(store, projectId);
-    for (const it of items) {
+    for (const it of await db.byProject(store, projectId)) {
       if (store === 'files') await deleteFile(it.id);
       else await db.del(store, it.id);
     }
@@ -123,14 +219,15 @@ export const STATUSES = [
 export const statusOf = (id) => STATUSES.find((s) => s.id === id) || STATUSES[0];
 
 export async function createTask(project, data, author = '') {
-  project.taskSeq = (project.taskSeq || 0) + 1;
-  project.updatedAt = Date.now();
-  await db.put('projects', project);
+  // Número consecutivo por proyecto. Si dos personas crean tareas sin conexión a la vez,
+  // el servidor renumera la que llegue en segundo lugar.
+  const existing = await db.byProject('tasks', project.id);
+  const number = existing.reduce((max, t) => Math.max(max, t.number || 0), 0) + 1;
   const now = Date.now();
   const task = {
     id: uid(),
     projectId: project.id,
-    number: project.taskSeq,
+    number,
     title: data.title || 'Tarea sin título',
     status: data.status || 'p2',
     category: data.category || project.categories[0] || 'General',
@@ -190,6 +287,12 @@ export async function exportProject(projectId) {
   const files = await db.byProject('files', projectId);
   out.files = [];
   for (const f of files) {
+    if (!f.blob) {
+      // Archivo sincronizado que aún no se había descargado en este dispositivo.
+      await fileUrl(f.id);
+      f.blob = (await db.get('files', f.id))?.blob;
+      if (!f.blob) continue;
+    }
     out.files.push({ id: f.id, name: f.name, type: f.type, data: await blobToDataURL(f.blob) });
   }
   return out;

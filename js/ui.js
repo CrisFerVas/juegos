@@ -153,7 +153,14 @@ export function pickFiles({ accept = '*/*', multiple = false, capture } = {}) {
 
 export const MEMBER_COLORS = ['#0f766e', '#7c3aed', '#db2777', '#0369a1', '#b45309', '#15803d', '#be123c', '#4338ca', '#0e7490', '#a16207'];
 
+let userOverride = null;
+/** En modo servidor el nombre es el de la cuenta. */
+export function setUserOverride(name) {
+  userOverride = name;
+}
+
 export function userName() {
+  if (userOverride) return userOverride;
   try {
     return localStorage.getItem('obraplan.user') || 'Yo';
   } catch {

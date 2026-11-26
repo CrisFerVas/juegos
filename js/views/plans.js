@@ -17,7 +17,7 @@ export async function renderPlans(view, ctx) {
       <div><h1>Planos</h1><p class="muted">${sheets.length} plano(s) · toca un plano para abrirlo y añadir tareas sobre él.</p></div>
       <div class="actions">
         <input type="search" class="search" id="q" placeholder="Buscar plano..." value="${esc(view.dataset.q || '')}" />
-        <button class="btn btn-primary" id="upload">⇪ Subir planos</button>
+        <button class="btn btn-primary write" id="upload">⇪ Subir planos</button>
       </div>
     </div>
     ${sheets.length === 0 ? `
@@ -25,7 +25,7 @@ export async function renderPlans(view, ctx) {
         <div class="empty-icon">📐</div>
         <h2>Sube tus planos</h2>
         <p class="muted">PDF (multipágina) o imágenes (JPG, PNG). Puedes arrastrarlos aquí.</p>
-        <button class="btn btn-primary" id="upload2">Seleccionar archivos</button>
+        <button class="btn btn-primary write" id="upload2">Seleccionar archivos</button>
       </div>` : Object.entries(groups).map(([folder, list]) => `
       <section class="folder">
         <h2 class="folder-title">📁 ${esc(folder)} <span class="muted small">${list.length}</span></h2>
@@ -41,7 +41,7 @@ export async function renderPlans(view, ctx) {
                   <strong title="${esc(s.name)}">${esc(s.name)}</strong>
                   <p class="muted small">v${s.version || 1} · ${open} abiertas / ${st.length} tareas</p>
                 </div>
-                <button class="icon-btn" data-edit="${s.id}" aria-label="Editar plano">⋯</button>
+                <button class="icon-btn write" data-edit="${s.id}" aria-label="Editar plano">⋯</button>
               </div>
             </article>`;
           }).join('')}

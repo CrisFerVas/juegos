@@ -46,7 +46,7 @@ export function renderDashboard(view, ctx) {
         <h1>Panel</h1>
         <p class="muted">${esc(project.address || '')}${project.client ? ` · Cliente: ${esc(project.client)}` : ''}</p>
       </div>
-      <div class="actions"><button class="btn btn-primary" id="new-task">+ Nueva tarea</button></div>
+      <div class="actions"><button class="btn btn-primary write" id="new-task">+ Nueva tarea</button></div>
     </div>
 
     <div class="kpis">

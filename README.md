@@ -3,8 +3,11 @@
 Aplicación web para gestionar proyectos de construcción, inspirada en herramientas de campo como Fieldwire:
 planos con tareas ancladas, listas de pendientes, seguimiento por responsable y equipo de obra.
 
-Funciona en el navegador (escritorio, tablet y móvil), **sin servidor ni compilación**, y también **sin conexión**:
-todos los datos (planos, tareas, fotos) se guardan localmente en el navegador mediante IndexedDB.
+Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
+
+- **Modo equipo (con servidor)**: cuentas de usuario, proyectos compartidos con roles y sincronización entre dispositivos.
+  Se sigue pudiendo trabajar sin conexión; los cambios se envían al recuperarla.
+- **Modo local (sin servidor)**: si la app se abre desde un hosting estático, todo se guarda sólo en ese navegador.
 
 ## Funcionalidades
 
@@ -19,26 +22,40 @@ todos los datos (planos, tareas, fotos) se guardan localmente en el navegador me
 | **Informes** | Exportación a CSV (compatible con Excel) e informe imprimible / PDF con fotos. |
 | **Equipo** | Personas con rol, empresa, contacto y color; recuento de tareas abiertas por persona. |
 | **Ajustes** | Datos del proyecto, categorías personalizadas, nombre del usuario, copia de seguridad completa (.json con planos y fotos) y borrado del proyecto. |
+| **Cuentas y accesos** | Registro con email y contraseña; acceso a cada proyecto como **Administrador**, **Miembro** o **Seguidor** (solo lectura). Invitación por email a personas que aún no tienen cuenta. |
+| **Sincronización** | Local primero: todo se guarda en el dispositivo y se sincroniza en segundo plano (cada 15 s, al volver la conexión y al editar). Indicador de estado y cambios pendientes. Los comentarios simultáneos se fusionan y los números de tarea duplicados se renumeran. |
 | **PWA** | Instalable en el móvil como app y utilizable sin conexión. |
 
 ## Cómo ejecutarla
 
-Al usar módulos ES y un *service worker*, hay que servirla por HTTP (no abrir el `index.html` directamente):
+### Modo equipo (recomendado)
+
+Requiere **Node.js 22.5 o superior** (sin dependencias: usa el SQLite integrado en Node).
 
 ```bash
-# Opción 1: Python
-python3 -m http.server 8080
-
-# Opción 2: Node
-npx serve .
+npm start            # http://localhost:3000
+npm test             # pruebas de la API
 ```
 
-Después abre <http://localhost:8080>. Pulsa **“Cargar proyecto de ejemplo”** para explorarla con datos.
+Variables de entorno: `PORT` (3000), `HOST` (0.0.0.0) y `DATA_DIR` (`./data`: base de datos SQLite y archivos subidos).
+La primera persona que crea un proyecto es su administradora; desde **Equipo → Acceso a la aplicación** da acceso a las demás.
 
-### Publicarla gratis con GitHub Pages
+Con Docker:
 
-En el repositorio: *Settings → Pages → Build and deployment → Deploy from a branch*, elige la rama y la carpeta `/ (root)`.
-La app quedará disponible en `https://<usuario>.github.io/<repositorio>/`.
+```bash
+docker build -t obraplan .
+docker run -p 3000:3000 -v obraplan-data:/data obraplan
+```
+
+Para publicarla en internet sirve cualquier plataforma que ejecute Node o Docker con un **disco persistente** montado en `DATA_DIR`
+(Render, Railway, Fly.io, un VPS...). Pon delante HTTPS (estas plataformas lo incluyen) y haz copias de la carpeta de datos.
+
+### Modo local (sin servidor)
+
+Basta con servir los archivos estáticos, por ejemplo con `python3 -m http.server 8080` o GitHub Pages
+(*Settings → Pages → Deploy from a branch*, carpeta `/ (root)`). No abras el `index.html` directamente: los módulos ES necesitan HTTP.
+
+Pulsa **“Cargar proyecto de ejemplo”** para explorarla con datos.
 
 ## Estructura
 
@@ -47,22 +64,37 @@ index.html              Punto de entrada
 manifest.webmanifest    Configuración PWA
 sw.js                   Service worker (uso sin conexión)
 css/styles.css          Estilos (modo claro/oscuro, adaptable a móvil)
-js/app.js               Enrutador y estructura principal
-js/db.js                Modelo de datos y persistencia (IndexedDB), copia de seguridad
+js/app.js               Enrutador, estructura principal y arranque (modo local / equipo)
+js/db.js                Modelo de datos y persistencia (IndexedDB), bandeja de cambios, copia de seguridad
+js/sync.js              Cuentas, roles y motor de sincronización con el servidor
 js/media.js             PDF → imágenes (pdf.js), miniaturas, compresión de fotos, plano demo
 js/ui.js                Utilidades de interfaz (modales, avisos, formato)
-js/views/               Vistas: projects, dashboard, plans, viewer, tasks, taskDetail, team, settings
+js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, team, settings
+server/app.js           API HTTP (cuentas, permisos, sincronización, archivos) y servidor de la app
+server/store.js         Esquema y consultas SQLite
+server/test/            Pruebas de la API (node --test)
+Dockerfile              Imagen para desplegar el servidor
 ```
+
+### Cómo funciona la sincronización
+
+Cada cambio local se guarda en IndexedDB junto con una entrada en una *bandeja de salida*. El cliente envía la bandeja a
+`POST /api/sync` con un cursor por proyecto y recibe a cambio todo lo modificado por otras personas desde ese cursor.
+El servidor comprueba el rol de cada cambio, guarda la versión más reciente de cada documento (en las tareas fusiona
+comentarios e historial) y renumera tareas con número repetido. Los planos y fotos se suben aparte (`PUT /api/files/:id`) y
+los demás dispositivos los descargan cuando los necesitan.
 
 Los PDF se procesan con [pdf.js](https://mozilla.github.io/pdf.js/), que se carga desde cdnjs la primera vez que se sube un PDF.
 
 ## Limitaciones actuales y próximos pasos
 
-Esta versión es **local y monousuario**: cada navegador tiene sus propios datos (se pueden compartir mediante exportar / importar).
-Para un uso en equipo real, los siguientes pasos naturales serían:
+- Las invitaciones no envían email: la persona administradora comparte el enlace de la app y la invitada se registra con ese email.
+- No hay recuperación de contraseña por email todavía.
+- Ante ediciones simultáneas del mismo campo gana la última (salvo comentarios e historial, que se fusionan).
 
-1. **Backend y sincronización** (p. ej. Supabase/Firebase o una API propia) con cuentas de usuario, permisos por rol y sincronización offline → online.
-2. **Notificaciones** de asignación y vencimiento (email / push).
-3. **Anotaciones sobre el plano** (flechas, nubes de revisión, texto, mediciones) y comparación de versiones.
-4. **Formularios** (partes diarios, inspecciones, checklists de calidad/seguridad) con plantillas.
-5. **RFI, presupuestos y horas** por tarea; diagrama de Gantt.
+Siguientes fases previstas:
+
+1. **Notificaciones** de asignación y vencimiento (email / push) y recuperación de contraseña.
+2. **Anotaciones sobre el plano** (flechas, nubes de revisión, texto, mediciones) y comparación de versiones.
+3. **Formularios** (partes diarios, inspecciones, checklists de calidad/seguridad) con plantillas.
+4. **RFI, presupuestos y horas** por tarea; diagrama de Gantt.

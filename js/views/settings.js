@@ -1,15 +1,22 @@
 import { db, exportProject, deleteProject } from '../db.js';
 import { esc, toast, confirmDialog, download, userName, setUserName } from '../ui.js';
+import { session, isAdmin, logout } from '../sync.js';
 
 export function renderSettings(view, ctx) {
   ctx.onTaskChanged = null;
   const p = ctx.project;
+  const admin = isAdmin(p.id);
+  const server = session.mode === 'server';
+  const lock = admin ? '' : 'disabled';
+  const adminNote = admin ? '' : '<p class="muted small">Solo los administradores pueden cambiar esto.</p>';
   view.innerHTML = `
     <div class="page-head"><div><h1>Ajustes</h1><p class="muted">Configuración del proyecto y copia de seguridad.</p></div></div>
 
     <div class="grid settings-grid">
       <form class="card" id="project-form">
         <h3>Datos del proyecto</h3>
+        ${adminNote}
+        <fieldset class="plain" ${lock}>
         <label class="field"><span>Nombre *</span><input name="name" required value="${esc(p.name)}" /></label>
         <div class="row2">
           <label class="field"><span>Código</span><input name="code" value="${esc(p.code)}" /></label>
@@ -17,29 +24,42 @@ export function renderSettings(view, ctx) {
         </div>
         <label class="field"><span>Dirección</span><input name="address" value="${esc(p.address)}" /></label>
         <button class="btn btn-primary">Guardar</button>
+        </fieldset>
       </form>
 
       <form class="card" id="cat-form">
         <h3>Categorías de tareas</h3>
         <p class="muted small">Una por línea. Se usan para clasificar tareas (oficios, especialidades...).</p>
+        ${adminNote}
+        <fieldset class="plain" ${lock}>
         <textarea name="categories" rows="8">${esc(p.categories.join('\n'))}</textarea>
         <button class="btn btn-primary">Guardar categorías</button>
+        </fieldset>
       </form>
 
+      ${server ? `
+      <section class="card">
+        <h3>Tu cuenta</h3>
+        <p><strong>${esc(session.user.name)}</strong><br /><span class="muted small">${esc(session.user.email)}</span></p>
+        <p class="muted small">Tu nombre aparece en comentarios y en el historial de cambios.</p>
+        <button class="btn" id="logout" type="button">Cerrar sesión</button>
+      </section>` : `
       <form class="card" id="user-form">
         <h3>Tu nombre</h3>
         <p class="muted small">Aparece en comentarios y en el historial de cambios.</p>
         <input name="user" value="${esc(userName())}" />
         <button class="btn btn-primary">Guardar</button>
-      </form>
+      </form>`}
 
       <section class="card">
         <h3>Copia de seguridad</h3>
         <p class="muted small">Los datos se guardan en este navegador. Exporta el proyecto (incluye planos y fotos) para guardarlo o compartirlo; se importa desde la pantalla de proyectos.</p>
         <button class="btn" id="export">⇩ Exportar proyecto (.json)</button>
         <hr />
+        ${admin ? `
         <h3 class="text-danger">Zona peligrosa</h3>
-        <button class="btn btn-danger" id="delete">Eliminar proyecto</button>
+        <p class="muted small">${server ? 'Se eliminará para todas las personas con acceso.' : ''}</p>
+        <button class="btn btn-danger" id="delete">Eliminar proyecto</button>` : ''}
       </section>
     </div>`;
 
@@ -60,7 +80,8 @@ export function renderSettings(view, ctx) {
     await db.put('projects', p);
     toast('Categorías guardadas');
   });
-  view.querySelector('#user-form').addEventListener('submit', (e) => {
+  view.querySelector('#logout')?.addEventListener('click', () => logout());
+  view.querySelector('#user-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const v = e.target.user.value.trim();
     if (!v) return;
@@ -80,7 +101,7 @@ export function renderSettings(view, ctx) {
       e.target.textContent = '⇩ Exportar proyecto (.json)';
     }
   });
-  view.querySelector('#delete').addEventListener('click', async () => {
+  view.querySelector('#delete')?.addEventListener('click', async () => {
     if (!(await confirmDialog(`¿Eliminar "${p.name}" con todos sus planos, tareas y fotos? No se puede deshacer.`))) return;
     await deleteProject(p.id);
     toast('Proyecto eliminado');

@@ -1,6 +1,7 @@
 import { db, createProject, createTask, saveFile, importProject, uid, statusOf } from '../db.js';
 import { esc, modal, toast, pickFiles, fmtDateTime, MEMBER_COLORS } from '../ui.js';
 import { demoFloorPlan } from '../media.js';
+import { session, roleOf, ROLE_LABELS } from '../sync.js';
 
 export async function renderProjects(view) {
   const [projects, tasks] = await Promise.all([db.all('projects'), db.all('tasks')]);
@@ -47,7 +48,7 @@ export async function renderProjects(view) {
               <span><strong>${s.open}</strong> abiertas</span>
               <span><strong>${s.total}</strong> tareas</span>
             </div>
-            <p class="muted small">Actualizado ${esc(fmtDateTime(p.updatedAt))}</p>
+            <p class="muted small">Actualizado ${esc(fmtDateTime(p.updatedAt))}${session.mode === 'server' ? ` · <span class="pill">${esc(ROLE_LABELS[roleOf(p.id)].split(' ')[0])}</span>` : ''}</p>
           </a>`;
         }).join('')}
       </div>

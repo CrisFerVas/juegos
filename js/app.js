@@ -1,5 +1,7 @@
 import { db } from './db.js';
-import { esc } from './ui.js';
+import { esc, toast, initials } from './ui.js';
+import { session, initSession, onSync, logout, canEdit, roleOf, ROLE_LABELS, syncNow } from './sync.js';
+import { renderAuth } from './views/auth.js';
 import { renderProjects } from './views/projects.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderPlans } from './views/plans.js';
@@ -7,7 +9,7 @@ import { renderViewer } from './views/viewer.js';
 import { renderTasks } from './views/tasks.js';
 import { renderTeam } from './views/team.js';
 import { renderSettings } from './views/settings.js';
-import { closeTaskDrawer } from './views/taskDetail.js';
+import { closeTaskDrawer, refreshTaskDrawer } from './views/taskDetail.js';
 
 const app = document.getElementById('app');
 
@@ -53,6 +55,55 @@ async function loadContext(projectId) {
 }
 
 let renderToken = 0;
+let current = null; // { ctx } de la vista de proyecto actual, o { projects: true }
+
+// ---------- Estado de sincronización ----------
+function syncBadge() {
+  if (session.mode !== 'server') return '';
+  const s = session.status;
+  const map = {
+    syncing: ['sync-busy', 'Sincronizando...'],
+    ok: ['sync-ok', session.pending ? `${session.pending} cambio(s) por enviar` : 'Sincronizado'],
+    offline: ['sync-off', `Sin conexión${session.pending ? ` · ${session.pending} pendiente(s)` : ''}`],
+    error: ['sync-error', 'Error al sincronizar'],
+    idle: ['sync-busy', 'Conectando...'],
+  };
+  const [cls, label] = map[s] || map.idle;
+  return `<button class="sync-badge ${cls}" data-sync title="Sincronizar ahora"><span class="sync-dot"></span><span>${esc(label)}</span></button>`;
+}
+function userMenu() {
+  if (session.mode !== 'server' || !session.user) return '';
+  return `
+    <div class="user-menu">
+      <span class="avatar avatar-sm" style="background:var(--accent)">${esc(initials(session.user.name))}</span>
+      <span class="user-name" title="${esc(session.user.email)}">${esc(session.user.name)}</span>
+      <button class="link small" data-logout>Cerrar sesión</button>
+    </div>`;
+}
+function bindChrome() {
+  document.querySelectorAll('[data-sync]').forEach((b) => (b.onclick = () => syncNow()));
+  document.querySelectorAll('[data-logout]').forEach((b) => (b.onclick = () => logout()));
+}
+function updateBadges() {
+  document.querySelectorAll('[data-sync]').forEach((b) => (b.outerHTML = syncBadge()));
+  bindChrome();
+}
+
+/** Aplica cambios llegados de otros usuarios sin interrumpir a quien está escribiendo. */
+let refreshTimer = null;
+function refreshFromRemote() {
+  clearTimeout(refreshTimer);
+  const busy = document.querySelector('.modal-backdrop') || document.activeElement?.matches('input, textarea, select');
+  if (busy) {
+    refreshTimer = setTimeout(refreshFromRemote, 1500);
+    return;
+  }
+  if (current?.projects) route();
+  else if (current?.ctx) {
+    const ctx = current.ctx;
+    (ctx.onTaskChanged ? ctx.onTaskChanged() : ctx.rerender()).then?.(() => refreshTaskDrawer(ctx));
+  }
+}
 
 async function route() {
   const token = ++renderToken;
@@ -62,11 +113,17 @@ async function route() {
 
   if (parts[0] !== 'p' || !parts[1]) {
     document.title = 'ObraPlan · Proyectos';
+    current = { projects: true };
+    document.body.classList.remove('readonly');
     app.innerHTML = `
       <header class="topbar">
         <a class="brand" href="#/"><img src="icons/icon.svg" alt="" /> ObraPlan</a>
+        <span class="spacer"></span>
+        ${syncBadge()}
+        ${userMenu()}
       </header>
       <main class="page" id="view"></main>`;
+    bindChrome();
     await renderProjects(document.getElementById('view'));
     return;
   }
@@ -79,6 +136,9 @@ async function route() {
     return;
   }
 
+  current = { ctx };
+  const readonly = !canEdit(projectId);
+  document.body.classList.toggle('readonly', readonly);
   const fullBleed = section === 'plans' && rest[0];
   app.innerHTML = `
     <div class="shell ${fullBleed ? 'shell-full' : ''}">
@@ -95,8 +155,16 @@ async function route() {
               <span class="nav-icon" aria-hidden="true">${n.icon}</span><span>${n.label}</span>
             </a>`).join('')}
         </nav>
+        <div class="sidebar-foot">
+          ${session.mode === 'server' ? `<span class="muted small">Tu rol: ${esc(ROLE_LABELS[roleOf(projectId)])}</span>` : ''}
+          ${syncBadge()}
+          ${userMenu()}
+        </div>
       </aside>
-      <main class="content" id="view"></main>
+      <main class="content">
+        ${readonly ? '<div class="readonly-banner">Solo lectura: eres seguidor de este proyecto. Pide a un administrador que cambie tu rol si necesitas editar.</div>' : ''}
+        <div id="view" class="view"></div>
+      </main>
       <nav class="bottom-nav">
         ${NAV.map((n) => `
           <a href="#/p/${projectId}/${n.id}" class="${section === n.id ? 'active' : ''}">
@@ -105,6 +173,7 @@ async function route() {
       </nav>
     </div>`;
 
+  bindChrome();
   const view = document.getElementById('view');
   const label = NAV.find((n) => n.id === section)?.label || '';
   document.title = `${label} · ${ctx.project.name} · ObraPlan`;
@@ -124,8 +193,30 @@ async function route() {
   await render();
 }
 
-window.addEventListener('hashchange', route);
-route();
+// ---------- Arranque ----------
+async function boot() {
+  const mode = await initSession();
+  if (mode === 'login') return showLogin();
+  onSync((type, detail) => {
+    if (type === 'status') updateBadges();
+    else if (type === 'remote-change') refreshFromRemote();
+    else if (type === 'rejected') toast('Algunos cambios no se guardaron porque no tienes permiso. Se ha restaurado la versión del servidor.', 'error');
+    else if (type === 'project-removed' && current?.ctx?.project.id === detail) {
+      toast('Ya no tienes acceso a este proyecto', 'error');
+      navigate('#/');
+    } else if (type === 'auth-expired') showLogin('Tu sesión ha caducado. Vuelve a iniciar sesión; los cambios pendientes se enviarán después.');
+  });
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+function showLogin(message) {
+  closeTaskDrawer();
+  document.title = 'ObraPlan · Iniciar sesión';
+  renderAuth(app, { message, onDone: () => location.reload() });
+}
+
+boot();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -1,6 +1,7 @@
 import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue } from '../db.js';
 import { esc, toast, avatar, fmtDate, userName } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
+import { canEdit } from '../sync.js';
 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
@@ -34,7 +35,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
           ${STATUSES.map((s) => `<button class="chip active" data-filter="${s.id}" style="--c:${s.color}" title="${s.label}">${s.short}</button>`).join('')}
         </div>
         <span class="spacer"></span>
-        <button class="btn btn-primary" id="add-mode">＋ Tarea</button>
+        <button class="btn btn-primary write" id="add-mode">＋ Tarea</button>
         <div class="zoom-group">
           <button class="icon-btn" id="zoom-out" aria-label="Alejar">−</button>
           <button class="icon-btn" id="zoom-fit" aria-label="Ajustar" title="Ajustar a pantalla">⤢</button>
@@ -196,7 +197,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (gesture.type === 'pan') {
       if (!gesture.moved && Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > TAP_TOLERANCE) gesture.moved = true;
       if (!gesture.moved) return;
-      if (gesture.pinId && state.mode === 'view') {
+      if (gesture.pinId && state.mode === 'view' && canEdit(ctx.project.id)) {
         // Arrastrar un pin para reubicar la tarea
         const p = toPlan(e.clientX, e.clientY);
         gesture.pinEl.style.left = `${Math.min(1, Math.max(0, p.x)) * W}px`;

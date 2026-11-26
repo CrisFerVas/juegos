@@ -1,5 +1,5 @@
 // Service worker: permite usar la app sin conexión (los datos ya viven en IndexedDB).
-const CACHE = 'obraplan-v1';
+const CACHE = 'obraplan-v2';
 const SHELL = [
   './',
   'index.html',
@@ -10,6 +10,8 @@ const SHELL = [
   'js/db.js',
   'js/ui.js',
   'js/media.js',
+  'js/sync.js',
+  'js/views/auth.js',
   'js/views/projects.js',
   'js/views/dashboard.js',
   'js/views/plans.js',
@@ -35,6 +37,8 @@ self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  // La API (datos y archivos de cada usuario) nunca se guarda en caché.
+  if (url.pathname.includes('/api/')) return;
   const cacheable = url.origin === self.location.origin || url.hostname === 'cdnjs.cloudflare.com';
   if (!cacheable) return;
   e.respondWith(

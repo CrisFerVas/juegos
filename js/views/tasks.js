@@ -1,6 +1,7 @@
 import { db, STATUSES, statusOf, isOverdue, saveTask, deleteFile, fileUrl } from '../db.js';
 import { esc, avatar, fmtDate, download, toast, confirmDialog, userName } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
+import { canEdit } from '../sync.js';
 
 // Los filtros se mantienen mientras la sesión esté abierta.
 const filters = { q: '', status: 'open', category: '', assignee: '', sheet: '', overdue: false, sort: 'number', mode: 'list' };
@@ -50,7 +51,7 @@ export function renderTasks(view, ctx) {
         </div>
         <button class="btn" id="csv">Exportar CSV</button>
         <button class="btn" id="report">Informe</button>
-        <button class="btn btn-primary" id="new">+ Nueva tarea</button>
+        <button class="btn btn-primary write" id="new">+ Nueva tarea</button>
       </div>
     </div>
 
@@ -198,7 +199,7 @@ function listHTML(ctx, list) {
     <div class="table-wrap">
       <table class="table">
         <thead><tr>
-          <th class="col-check"><input type="checkbox" id="select-all" aria-label="Seleccionar todas" ${list.every((t) => selected.has(t.id)) ? 'checked' : ''} /></th>
+          <th class="col-check write"><input type="checkbox" id="select-all" aria-label="Seleccionar todas" ${list.every((t) => selected.has(t.id)) ? 'checked' : ''} /></th>
           <th>#</th><th>Tarea</th><th>Estado</th><th class="hide-sm">Categoría</th><th class="hide-sm">Plano</th><th>Vence</th><th>Resp.</th>
         </tr></thead>
         <tbody>
@@ -208,7 +209,7 @@ function listHTML(ctx, list) {
             const checks = t.checklist.length ? `<span class="muted small">☑ ${t.checklist.filter((c) => c.done).length}/${t.checklist.length}</span>` : '';
             return `
             <tr data-open="${t.id}" class="${selected.has(t.id) ? 'selected' : ''}">
-              <td class="col-check"><input type="checkbox" data-select="${t.id}" ${selected.has(t.id) ? 'checked' : ''} aria-label="Seleccionar #${t.number}" /></td>
+              <td class="col-check write"><input type="checkbox" data-select="${t.id}" ${selected.has(t.id) ? 'checked' : ''} aria-label="Seleccionar #${t.number}" /></td>
               <td class="muted">${t.number}</td>
               <td>
                 <div class="task-title-cell">${esc(t.title)}</div>
@@ -235,7 +236,7 @@ function boardHTML(ctx, list) {
         <section class="board-col" data-status="${s.id}">
           <header style="--c:${s.color}"><span class="dot" style="background:${s.color}"></span>${s.label}<span class="muted small">${col.length}</span></header>
           ${col.map((t) => `
-            <article class="board-card" draggable="true" data-open="${t.id}">
+            <article class="board-card" draggable="${canEdit(ctx.project.id)}" data-open="${t.id}">
               <div class="row-between"><span class="muted small">#${t.number} · ${esc(t.category)}</span>${avatar(ctx.member(t.assigneeId))}</div>
               <p>${esc(t.title)}</p>
               <div class="task-sub">
