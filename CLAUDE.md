@@ -126,6 +126,12 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     busca actualización al volver a la app; en `controllerchange` (había versión anterior) la página se recarga
     sola cuando no hay nada abierto encima. Ajustes › Versión de la app muestra la versión (nombre de la caché
     `obraplan-vNN`): **subir `CACHE` en `sw.js` con cada cambio**.
+25. Menú de cámaras en la cámara integrada: el botón de Mpx (arriba) despliega las cámaras que expone el
+    navegador con su resolución máxima (la mayor entre `getPhotoCapabilities` y la máxima de vídeo). La primera
+    vez se abre cada cámara un instante para medirla (`probeCamera`; el teléfono no abre dos a la vez, así que
+    se para la actual y se reanuda), y se guarda en `localStorage` (`obraplan.cameraCaps`). La elegida se recuerda
+    (`obraplan.cameraId`, `deviceId` exacto; si ya no existe, vuelve a la trasera). Nombres por `facingMode` o
+    por la etiqueta del dispositivo («facing back/front» en Android). Android puede no exponer todas las cámaras.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

@@ -6,6 +6,49 @@ import { esc, trackOverlay } from './ui.js';
 
 export const cameraSupported = () => !!(navigator.mediaDevices?.getUserMedia && window.isSecureContext);
 
+// Cámara elegida y resolución máxima de cada cámara del teléfono (se detecta una vez y se recuerda)
+const CAM_KEY = 'obraplan.cameraId';
+const CAPS_KEY = 'obraplan.cameraCaps';
+const load = (k, d) => {
+  try {
+    return JSON.parse(localStorage.getItem(k)) ?? d;
+  } catch {
+    return d;
+  }
+};
+const save = (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {
+    /* sin almacenamiento */
+  }
+};
+const mpx = (w, h) => {
+  const mp = (w * h) / 1e6;
+  return `${mp >= 10 ? Math.round(mp) : mp.toLocaleString('es', { maximumFractionDigits: 1 })} Mpx`;
+};
+/** Orientación de una cámara: por lo detectado o por su nombre. */
+const facingOf = (dev, info) => info?.facing || (/front|frontal|user|selfie/i.test(dev.label) ? 'user' : /back|rear|trasera|environment/i.test(dev.label) ? 'environment' : '');
+
+/** Abre una cámara un instante para leer su resolución máxima de foto. */
+async function probeCamera(deviceId) {
+  const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, width: { ideal: 4096 }, height: { ideal: 3072 } }, audio: false });
+  const track = s.getVideoTracks()[0];
+  const set = track.getSettings?.() || {};
+  const vc = track.getCapabilities?.() || {};
+  let w = vc.width?.max || set.width || 0, h = vc.height?.max || set.height || 0;
+  if ('ImageCapture' in window) {
+    try {
+      const pc = await new window.ImageCapture(track).getPhotoCapabilities();
+      if (pc?.imageWidth?.max * pc?.imageHeight?.max > w * h) [w, h] = [pc.imageWidth.max, pc.imageHeight.max];
+    } catch {
+      /* sin datos de foto */
+    }
+  }
+  s.getTracks().forEach((t) => t.stop());
+  return { facing: set.facingMode || '', w, h };
+}
+
 /**
  * Abre la cámara a pantalla completa.
  * Devuelve un array de File (vacío si se cancela) o null si no se pudo acceder a la cámara.
@@ -13,19 +56,32 @@ export const cameraSupported = () => !!(navigator.mediaDevices?.getUserMedia && 
 export async function openCamera() {
   if (!cameraSupported()) return null;
   let facing = 'environment';
+  let deviceId = load(CAM_KEY, null); // cámara elegida en el menú de resolución
   let stream;
   let capture = null; // ImageCapture: foto a la resolución máxima del sensor (Chrome en Android)
   let photoSize = null; // { width, height } máximos para takePhoto
+  let currentId = null; // cámara que se está usando
   // Zoom: el de la propia cámara (Chrome en Android) o, si no lo ofrece, zoom digital (recorte)
   const zoom = { hw: false, min: 1, max: 8, value: 1 };
   const start = async () => {
     stream?.getTracks().forEach((t) => t.stop());
     // Vídeo 4:3 (formato del sensor) a la mayor resolución que dé la cámara: se usa si no hay ImageCapture
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: facing }, width: { ideal: 4096 }, height: { ideal: 3072 } },
-      audio: false,
-    });
+    const size = { width: { ideal: 4096 }, height: { ideal: 3072 } };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { facingMode: { ideal: facing }, ...size },
+        audio: false,
+      });
+    } catch (err) {
+      if (!deviceId) throw err;
+      deviceId = null; // la cámara guardada ya no existe: se usa la trasera por defecto
+      save(CAM_KEY, null);
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, ...size }, audio: false });
+    }
     const track = stream.getVideoTracks()[0];
+    const st = track.getSettings?.() || {};
+    if (st.facingMode) facing = st.facingMode;
+    currentId = st.deviceId || deviceId;
     capture = null;
     photoSize = null;
     const zc = track.getCapabilities?.().zoom;
@@ -47,7 +103,7 @@ export async function openCamera() {
     return null; // permiso denegado o cámara bloqueada por el entorno
   }
 
-  const cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'videoinput');
+  let cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'videoinput');
   const shots = [];
 
   return new Promise((resolve) => {
@@ -60,9 +116,10 @@ export async function openCamera() {
       <div class="camera-flash"></div>
       <div class="camera-top">
         <button type="button" class="camera-btn" data-cam="close" aria-label="Cerrar la cámara">✕</button>
-        <span class="camera-count" aria-live="polite"></span>
+        <button type="button" class="camera-count" data-cam="res" aria-live="polite" aria-haspopup="true" title="Elegir cámara y resolución"></button>
         ${cams.length > 1 ? `<button type="button" class="camera-btn" data-cam="flip" aria-label="Cambiar de cámara">⟲</button>` : '<span></span>'}
       </div>
+      <div class="camera-menu hidden" role="menu" aria-label="Cámaras y resolución"></div>
       <button type="button" class="camera-zoom" data-cam="zoom" aria-label="Zoom de la cámara">1×</button>
       <div class="camera-bottom">
         <div class="camera-thumbs"></div>
@@ -94,15 +151,22 @@ export async function openCamera() {
     };
     /** Resolución con la que se harán las fotos, p. ej. «12 Mpx». */
     let lastShot = null; // tamaño real de la última foto (el dato más fiable)
+    /** Resolución de la cámara actual: la mayor entre la de foto, la máxima de vídeo y la de la última foto. */
+    const currentRes = () => {
+      const vc = stream?.getVideoTracks()[0]?.getCapabilities?.() || {};
+      const opts = [[photoSize?.width, photoSize?.height], [vc.width?.max, vc.height?.max], [video.videoWidth, video.videoHeight], [lastShot?.w, lastShot?.h]];
+      return opts.filter(([a, b]) => a && b).sort((a, b) => b[0] * b[1] - a[0] * a[1])[0] || [0, 0];
+    };
     const resolution = () => {
-      const area = lastShot ? lastShot.w * lastShot.h : Math.max((photoSize?.width || 0) * (photoSize?.height || 0), video.videoWidth * video.videoHeight);
+      const [rw, rh] = currentRes();
+      const area = rw * rh;
       if (!area) return '';
       const mp = area / 1e6;
       return `${mp >= 10 ? Math.round(mp) : mp.toLocaleString('es', { maximumFractionDigits: 1 })} Mpx`;
     };
     const refresh = () => {
       const n = shots.length;
-      el.querySelector('.camera-count').textContent = [n ? `${n} foto${n > 1 ? 's' : ''}` : '', resolution()].filter(Boolean).join(' · ');
+      el.querySelector('.camera-count').textContent = [n ? `${n} foto${n > 1 ? 's' : ''}` : '', resolution()].filter(Boolean).join(' · ') + ' ▾';
       const done = el.querySelector('[data-cam=done]');
       done.disabled = !n;
       done.textContent = n ? `Listo (${n})` : 'Listo';
@@ -247,17 +311,96 @@ export async function openCamera() {
     };
     el.querySelector('[data-cam=done]').onclick = () => finish(shots.map((s) => s.file));
     el.querySelector('[data-cam=close]').onclick = () => finish([]);
-    el.querySelector('[data-cam=flip]')?.addEventListener('click', async () => {
-      facing = facing === 'environment' ? 'user' : 'environment';
+    const restart = async () => {
       try {
         await start();
-        video.srcObject = stream;
-        lastShot = null;
-        setZoom(zoom.value);
-        refresh();
       } catch {
-        /* se mantiene la cámara actual */
+        return false;
       }
+      video.srcObject = stream;
+      lastShot = null;
+      setZoom(zoom.value);
+      refresh();
+      return true;
+    };
+    el.querySelector('[data-cam=flip]')?.addEventListener('click', async () => {
+      facing = facing === 'environment' ? 'user' : 'environment';
+      // La mejor cámara conocida del otro lado (o la que elija el navegador)
+      const caps = load(CAPS_KEY, {});
+      const other = cams
+        .filter((d) => facingOf(d, caps[d.deviceId]) === facing)
+        .sort((a, b) => (caps[b.deviceId]?.w * caps[b.deviceId]?.h || 0) - (caps[a.deviceId]?.w * caps[a.deviceId]?.h || 0))[0];
+      deviceId = other?.deviceId || null;
+      save(CAM_KEY, deviceId);
+      await restart();
+    });
+
+    // ---------- Menú: cámaras del teléfono y su resolución máxima ----------
+    const menu = el.querySelector('.camera-menu');
+    menu.addEventListener('pointerdown', (e) => e.stopPropagation());
+    const closeMenu = () => menu.classList.add('hidden');
+    el.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('[data-cam=res]')) closeMenu();
+    });
+    /** Resolución de la cámara actual: la de foto (ImageCapture) o la máxima de vídeo. */
+    const noteCurrent = (caps) => {
+      if (!currentId) return;
+      const [w, h] = currentRes();
+      if (w && h) caps[currentId] = { ...caps[currentId], facing, w, h };
+    };
+    const renderMenu = (caps) => {
+      const list = cams.map((d) => ({ d, info: caps[d.deviceId], facing: facingOf(d, caps[d.deviceId]) }));
+      list.sort((a, b) => (a.facing === 'user') - (b.facing === 'user') || (b.info?.w * b.info?.h || 0) - (a.info?.w * a.info?.h || 0));
+      let back = 0;
+      const nameOf = (x) => {
+        if (x.facing === 'user') return 'Cámara frontal';
+        if (x.facing === 'environment') return ++back === 1 ? 'Cámara trasera principal' : `Cámara trasera ${back}`;
+        return x.d.label || 'Cámara';
+      };
+      menu.innerHTML = `<p class="camera-menu-title">Cámara y resolución máxima</p>` + list.map((x) => {
+        const on = x.d.deviceId === currentId;
+        const res = x.info?.w ? `${mpx(x.info.w, x.info.h)} · ${x.info.w}×${x.info.h}` : 'resolución desconocida';
+        return `<button type="button" role="menuitemradio" aria-checked="${on}" class="camera-menu-item ${on ? 'on' : ''}" data-dev="${esc(x.d.deviceId)}">
+          <span>${esc(nameOf(x))}</span><small>${esc(res)}</small>${on ? '<b aria-hidden="true">✓</b>' : ''}</button>`;
+      }).join('') + (cams.length < 2 ? '<p class="camera-menu-note">El navegador solo muestra esta cámara del teléfono.</p>' : '');
+      menu.querySelectorAll('[data-dev]').forEach((b) =>
+        b.addEventListener('click', async () => {
+          closeMenu();
+          if (b.dataset.dev === currentId) return;
+          const prev = deviceId;
+          deviceId = b.dataset.dev;
+          save(CAM_KEY, deviceId);
+          if (!(await restart())) {
+            deviceId = prev;
+            await restart();
+          }
+        })
+      );
+    };
+    el.querySelector('[data-cam=res]').addEventListener('click', async () => {
+      if (!menu.classList.contains('hidden')) return closeMenu();
+      // Los nombres de las cámaras solo se conocen tras dar permiso: se vuelven a pedir ahora
+      cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'videoinput' && d.deviceId);
+      const caps = load(CAPS_KEY, {});
+      noteCurrent(caps);
+      const unknown = cams.filter((d) => !caps[d.deviceId]?.w && d.deviceId !== currentId);
+      menu.classList.remove('hidden');
+      if (unknown.length) {
+        // Hay que abrir cada cámara un momento (el teléfono no deja abrir dos a la vez)
+        menu.innerHTML = '<p class="camera-menu-title">Detectando las cámaras del teléfono…</p>';
+        stream?.getTracks().forEach((t) => t.stop());
+        for (const d of unknown) {
+          try {
+            caps[d.deviceId] = await probeCamera(d.deviceId);
+          } catch {
+            /* cámara no disponible */
+          }
+        }
+        await restart();
+      }
+      noteCurrent(caps);
+      save(CAPS_KEY, caps);
+      renderMenu(caps);
     });
     refresh();
   });
