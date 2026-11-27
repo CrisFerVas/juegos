@@ -151,8 +151,21 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     del trazo. Contenido: la imagen base, una copia del lienzo `canvas.hires` del PDF (nítido con zoom) y las
     anotaciones con `<use href="#id">` a los grupos `markups-saved`/`markups-draft` (se ve el trazo en curso).
     Se muestra en dibujo y al mover/redimensionar una anotación seleccionada.
+29. Herramienta «Recortar resaltado» (paso 1, en el visor del plano; no en el editor de fotos): recuadro
+    transparente que se mueve y redimensiona (8 tiradores, fuera oscurecido) y dos botones: «Borrar dentro»
+    (añade un `cut`) y «Dejar solo dentro» (interseca `keep`). Afecta a rotulador y lápiz que toquen el
+    recuadro. Datos: `m.clip = { keep: [x0,y0,x1,y1] | null, cuts: [[...]] }` (0-1); el trazo no se modifica.
+    SVG: `<clipPath>` anidados (cada cut = todo el plano menos su recuadro, `clip-rule="evenodd"`); PDF:
+    `W n` para keep y `W* n` por cada cut (`withClip` en `exportplan.js`). Selección/borrador ignoran la zona
+    recortada; mover o redimensionar la anotación mueve también sus recortes. Historial: entrada `batch`
+    (un recorte que afecta a varias anotaciones se deshace de una vez); `applyHistory` de `edit` ahora quita
+    las propiedades que no estaban antes (p. ej. `clip`).
 
 ## Pendiente / ideas
+- **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de
+  esa zona, relleno desde el trazo hasta las líneas, cerrar huecos, ignorar textos) y recortar a esa forma.
+  El usuario compartió un plano real para probarlo (`1.- ANDÉN ESTACIÓN 02`, A0 girado 270°); **no está en el
+  repo** (pedírselo de nuevo si hace falta).
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
 - Avisos fiables con la app cerrada: Web Push desde el servidor (VAPID) cuando se publique; email; recuperación de contraseña.
 - Publicar el servidor (Render/Railway/Fly.io o VPS con disco persistente) cuando el usuario quiera modo equipo real.

@@ -182,7 +182,18 @@ function createPainter(PDFLib, pdf, page, font, toPdf) {
     page.node.wrapContentStreams(start, end);
     page.pushOperators(L.pushGraphicsState(), L.concatTransformationMatrix(...toPdf), ...ops, L.popGraphicsState());
   }
-  return { path, text, textWidth, flush };
+  /** Dibuja con los recortes de una anotación: solo dentro de `keep` y fuera de cada `cut` (coords 0-1). */
+  function withClip(clip, W, H, fn) {
+    if (!clip || (!clip.keep && !clip.cuts?.length)) return fn();
+    ops.push(L.pushGraphicsState());
+    const rect = ([x0, y0, x1, y1]) => [L.moveTo(x0 * W, y0 * H), L.lineTo(x1 * W, y0 * H), L.lineTo(x1 * W, y1 * H), L.lineTo(x0 * W, y1 * H), L.closePath()];
+    if (clip.keep) ops.push(...rect(clip.keep), L.clip(), L.endPath());
+    // Cada recorte: todo menos su recuadro (par-impar); los recortes sucesivos se intersecan
+    for (const cut of clip.cuts || []) ops.push(...rect([-1, -1, 2, 2]), ...rect(cut), L.clipEvenOdd(), L.endPath());
+    fn();
+    ops.push(L.popGraphicsState());
+  }
+  return { path, text, textWidth, flush, withClip };
 }
 
 /** Dibuja una anotación (mismo aspecto que en el visor). */
@@ -382,7 +393,7 @@ export async function buildSheetsPdf(ctx, sheets, opts = { markups: true, tasks:
       allMarkups
         .filter((m) => m.sheetId === s.id && m.type !== 'photo' && m.points?.length)
         .sort((a, b) => a.createdAt - b.createdAt)
-        .forEach((m) => paintMarkup(painter, m, W, H, metersPerPx));
+        .forEach((m) => painter.withClip(m.clip, W, H, () => paintMarkup(painter, m, W, H, metersPerPx)));
     }
     if (opts.tasks) {
       ctx.tasks

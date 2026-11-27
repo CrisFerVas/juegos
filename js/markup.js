@@ -29,6 +29,7 @@ export const MARKUP_TOOLS = [
   { id: 'area', n: 'Medir área (toca los vértices)', i: ic('<path d="M5 18l2-12 11 3 1 9z"/><path d="M9 14h6" stroke-dasharray="2 2"/>') },
   { id: 'calibrate', n: 'Calibrar escala con una cota conocida', i: ic('<path d="M3 12h18M3 9v6M21 9v6"/><path d="M9 6l2 2 4-4"/>') },
   { id: 'text', n: 'Texto', i: ic('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>') },
+  { id: 'clip', n: 'Recortar resaltado con un recuadro (borrar lo que se sale)', i: ic('<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>') },
   { id: 'eraser', n: 'Borrador (toca o arrastra sobre una anotación)', i: ic('<path d="M8 20h12M4.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H7.5z"/><path d="M9 11l5 5"/>') },
 ];
 
@@ -75,9 +76,9 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.setAttribute('width', W);
   svg.setAttribute('height', H);
-  svg.innerHTML = '<g class="markups-saved"></g><g class="markups-draft"></g><g class="markups-sel"></g>';
+  svg.innerHTML = '<g class="markups-saved"></g><g class="markups-draft"></g><g class="markups-sel"></g><g class="markups-clipwin"></g>';
   stage.insertBefore(svg, stage.querySelector('.pins'));
-  const [savedG, draftG, selG] = svg.children;
+  const [savedG, draftG, selG, clipG] = svg.children;
 
   let items = [];
   let draft = null;
@@ -220,7 +221,50 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
         break;
       }
     }
-    return `<g data-markup="${esc(m.id || 'draft')}">${inner}</g>`;
+    return `<g data-markup="${esc(m.id || 'draft')}">${wrapClip(m, inner)}</g>`;
+  }
+
+  // ---------- Recortes (herramienta «Recortar resaltado») ----------
+  // m.clip = { keep: [x0, y0, x1, y1] | null, cuts: [[x0, y0, x1, y1], ...] } en coordenadas 0-1:
+  // se ve solo lo que queda dentro de `keep` y fuera de cada `cut`. El trazo original no se modifica.
+  const CLIPPABLE = ['marker', 'pen'];
+  let clipSeq = 0;
+  const rectPx = ([x0, y0, x1, y1]) => [x0 * W, y0 * H, x1 * W, y1 * H];
+  function wrapClip(m, inner) {
+    const c = m.clip;
+    if (!c || (!c.keep && !c.cuts?.length)) return inner;
+    let defs = '', open = '', close = '';
+    const id = () => `mkclip-${++clipSeq}`;
+    if (c.keep) {
+      const [x0, y0, x1, y1] = rectPx(c.keep);
+      const k = id();
+      defs += `<clipPath id="${k}" clipPathUnits="userSpaceOnUse"><rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}"/></clipPath>`;
+      open += `<g clip-path="url(#${k})">`;
+      close += '</g>';
+    }
+    for (const cut of c.cuts || []) {
+      // Todo el plano menos el recuadro (regla par-impar): cada recorte anidado quita su zona
+      const [x0, y0, x1, y1] = rectPx(cut);
+      const k = id();
+      defs += `<clipPath id="${k}" clipPathUnits="userSpaceOnUse"><path clip-rule="evenodd" d="M${-W} ${-H}H${2 * W}V${2 * H}H${-W}Z M${x0} ${y0}H${x1}V${y1}H${x0}Z"/></clipPath>`;
+      open += `<g clip-path="url(#${k})">`;
+      close += '</g>';
+    }
+    return `<defs>${defs}</defs>${open}${inner}${close}`;
+  }
+  /** ¿El punto (px) se ve, según los recortes de la anotación? */
+  function visibleAt(m, x, y, tol = 0) {
+    const c = m.clip;
+    if (!c) return true;
+    if (c.keep) {
+      const [x0, y0, x1, y1] = rectPx(c.keep);
+      if (x < x0 - tol || x > x1 + tol || y < y0 - tol || y > y1 + tol) return false;
+    }
+    for (const cut of c.cuts || []) {
+      const [x0, y0, x1, y1] = rectPx(cut);
+      if (x > x0 + tol && x < x1 - tol && y > y0 + tol && y < y1 - tol) return false;
+    }
+    return true;
   }
 
   function render() {
@@ -373,6 +417,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
       const [x0, y0, x1, y1] = bbox(m);
       return x >= x0 - tol && x <= x1 + tol && y >= y0 - tol && y <= y1 + tol;
     }
+    if (!visibleAt(m, x, y, tol)) return false; // zona recortada
     const o = outline(m);
     const t = tol + (m.width * W) / 2;
     for (let i = 0; i < o.length - 1; i++) if (distSeg(x, y, o[i][0], o[i][1], o[i + 1][0], o[i + 1][1]) <= t) return true;
@@ -395,10 +440,20 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
 
   /** Aplica una entrada del historial y devuelve la contraria (para rehacer o volver a deshacer). */
   async function applyHistory(entry) {
+    if (entry.op === 'batch') {
+      // Varias anotaciones a la vez (p. ej. un recorte): se deshacen en orden inverso
+      const inverses = [];
+      for (const e of [...entry.entries].reverse()) {
+        const inv = await applyHistory(e);
+        if (inv) inverses.push(inv);
+      }
+      return { op: 'batch', entries: inverses };
+    }
     if (entry.op === 'edit') {
       const item = items.find((m) => m.id === entry.before.id);
       if (!item) return null;
       const after = structuredClone(item);
+      for (const k of Object.keys(item)) if (!(k in entry.before)) delete item[k]; // p. ej. un recorte añadido
       Object.assign(item, structuredClone(entry.before));
       await db.put('markups', item);
       render();
@@ -417,10 +472,12 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     // identificador: se vuelve a crear y el historial pasa a referirse al nuevo.
     const { id, _rev, ...rest } = entry.doc;
     const restored = await persist(rest);
-    for (const u of [...undoStack, ...redoStack]) {
-      if (u.op === 'edit' && u.before.id === id) u.before.id = restored.id;
-      else if (u.op !== 'edit' && u.doc.id === id) u.doc = { ...u.doc, id: restored.id };
-    }
+    const remap = (u) => {
+      if (u.op === 'batch') u.entries.forEach(remap);
+      else if (u.op === 'edit' && u.before.id === id) u.before.id = restored.id;
+      else if ((u.op === 'add' || u.op === 'del') && u.doc.id === id) u.doc = { ...u.doc, id: restored.id };
+    };
+    [...undoStack, ...redoStack].forEach(remap);
     return { op: 'add', doc: restored };
   }
 
@@ -466,7 +523,13 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     }
     const pts = m.points.map(px);
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    const b = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    if (m.clip?.keep) {
+      const [x0, y0, x1, y1] = rectPx(m.clip.keep);
+      const r = [Math.max(b[0], x0), Math.max(b[1], y0), Math.min(b[2], x1), Math.min(b[3], y1)];
+      if (r[2] > r[0] && r[3] > r[1]) return r;
+    }
+    return b;
   }
   const isSegment = (m) => m.type === 'line' || m.type === 'arrow' || m.type === 'measure';
   function handles(m) {
@@ -548,8 +611,18 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     const dx = x - start[0], dy = y - start[1];
     edit.changed = edit.changed || Math.hypot(dx, dy) > 0.5;
     const norm = ([px0, py0]) => [px0 / W, py0 / H];
+    // Los recortes acompañan a la anotación al moverla o cambiar su tamaño
+    const mapClip = (f) => {
+      if (!orig.clip) return;
+      const mr = (r) => {
+        const [a, b] = f([r[0] * W, r[1] * H]), [c, d] = f([r[2] * W, r[3] * H]);
+        return [Math.min(a, c) / W, Math.min(b, d) / H, Math.max(a, c) / W, Math.max(b, d) / H];
+      };
+      sel.clip = { keep: orig.clip.keep ? mr(orig.clip.keep) : null, cuts: (orig.clip.cuts || []).map(mr) };
+    };
     if (handle === 'move') {
       sel.points = orig.points.map(([qx, qy]) => [qx + dx / W, qy + dy / H]);
+      mapClip(([a, b]) => [a + dx, b + dy]);
     } else if (handle === 'p0' || handle === 'p1') {
       sel.points = orig.points.map((q) => [...q]);
       sel.points[handle === 'p0' ? 0 : sel.points.length - 1] = norm([x, y]);
@@ -571,10 +644,9 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
         sel.points = [norm([left + (ax - box[0]) * k, top + (ay - box[1]) * k])];
       } else {
         const bw = box[2] - box[0], bh = box[3] - box[1];
-        sel.points = orig.points.map(([qx, qy]) => {
-          const [ox, oy] = [qx * W, qy * H];
-          return norm([bw ? x0 + ((ox - box[0]) / bw) * (x1 - x0) : ox + (x0 - box[0]), bh ? y0 + ((oy - box[1]) / bh) * (y1 - y0) : oy + (y0 - box[1])]);
-        });
+        const f = ([ox, oy]) => [bw ? x0 + ((ox - box[0]) / bw) * (x1 - x0) : ox + (x0 - box[0]), bh ? y0 + ((oy - box[1]) / bh) * (y1 - y0) : oy + (y0 - box[1])];
+        sel.points = orig.points.map(([qx, qy]) => norm(f([qx * W, qy * H])));
+        mapClip(f);
       }
     }
     savedG.innerHTML = items.map(shapeSVG).join('');
@@ -587,6 +659,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     if (!e || !sel || !e.changed) return;
     sel.points = sel.points.map(([qx, qy]) => [round(qx), round(qy)]);
     if (sel.fontSize) sel.fontSize = round(sel.fontSize);
+    if (sel.clip) sel.clip = { keep: sel.clip.keep?.map(round) || null, cuts: (sel.clip.cuts || []).map((r) => r.map(round)) };
     await db.put('markups', sel);
     record({ op: 'edit', before: e.orig });
     render();
@@ -611,7 +684,114 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     record({ op: 'del', doc });
   }
 
+  // ---------- Recuadro de recorte ----------
+  let win = null; // [x0, y0, x1, y1] en píxeles del plano
+  let winEdit = null;
+  function renderClipWin() {
+    if (!win) {
+      clipG.innerHTML = '';
+      return;
+    }
+    const k = 1 / getScale();
+    const [x0, y0, x1, y1] = win;
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const handlesAt = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [mx, y0], [x1, my], [mx, y1], [x0, my]];
+    clipG.innerHTML = `
+      <path d="M${-W} ${-H}H${2 * W}V${2 * H}H${-W}Z M${x0} ${y0}H${x1}V${y1}H${x0}Z" fill="rgba(15,23,42,.30)" fill-rule="evenodd"/>
+      <rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="rgba(255,255,255,.04)" stroke="#f59e0b" stroke-width="${2.5 * k}" stroke-dasharray="${9 * k} ${6 * k}"/>
+      ${handlesAt.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${(i < 4 ? 9 : 7) * k}" fill="#fff" stroke="#f59e0b" stroke-width="${2.5 * k}"/>`).join('')}`;
+  }
+  const WIN_PARTS = ['nw', 'ne', 'se', 'sw', 'n', 'e', 's', 'w'];
+  function clipPick(p) {
+    if (!win) return null;
+    const x = p.x * W, y = p.y * H;
+    const tol = 22 / getScale();
+    const [x0, y0, x1, y1] = win;
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [mx, y0], [x1, my], [mx, y1], [x0, my]];
+    let best = null, bd = tol;
+    pts.forEach(([hx, hy], i) => {
+      const d = Math.hypot(x - hx, y - hy);
+      if (d <= bd) [best, bd] = [WIN_PARTS[i], d];
+    });
+    if (best) return best;
+    return x >= x0 && x <= x1 && y >= y0 && y <= y1 ? 'move' : null;
+  }
+  function clipDrag(p) {
+    if (!winEdit) return;
+    const x = p.x * W, y = p.y * H;
+    const dx = x - winEdit.start[0], dy = y - winEdit.start[1];
+    let [x0, y0, x1, y1] = winEdit.orig;
+    const part = winEdit.part;
+    if (part === 'move') [x0, x1, y0, y1] = [x0 + dx, x1 + dx, y0 + dy, y1 + dy];
+    else {
+      if (part.includes('w')) x0 += dx;
+      if (part.includes('e')) x1 += dx;
+      if (part.includes('n')) y0 += dy;
+      if (part.includes('s')) y1 += dy;
+    }
+    const min = 6 / getScale();
+    win = [Math.min(x0, x1 - min), Math.min(y0, y1 - min), Math.max(x1, x0 + min), Math.max(y1, y0 + min)];
+    renderClipWin();
+  }
+  /** Caja del trazo completo (sin recortes), con su grosor. */
+  function rawBox(m) {
+    const pts = m.points.map(px);
+    const half = ((m.width || 0) * W) / 2;
+    return [Math.min(...pts.map((q) => q[0])) - half, Math.min(...pts.map((q) => q[1])) - half, Math.max(...pts.map((q) => q[0])) + half, Math.max(...pts.map((q) => q[1])) + half];
+  }
+  /**
+   * Aplica el recuadro a los resaltados (rotulador y lápiz) que toca.
+   * mode 'cut': borra lo que queda dentro; 'keep': deja solo lo que queda dentro. Devuelve cuántos cambió.
+   */
+  async function clipApply(mode) {
+    if (!win) return 0;
+    const [wx0, wy0, wx1, wy1] = win;
+    const rn = [round(wx0 / W), round(wy0 / H), round(wx1 / W), round(wy1 / H)];
+    const entries = [];
+    if (sel) deselect();
+    for (const m of [...items]) {
+      if (!CLIPPABLE.includes(m.type)) continue;
+      const [bx0, by0, bx1, by1] = rawBox(m);
+      if (bx1 < wx0 || bx0 > wx1 || by1 < wy0 || by0 > wy1) continue; // no toca el recuadro
+      const inside = bx0 >= wx0 && bx1 <= wx1 && by0 >= wy0 && by1 <= wy1;
+      if (mode === 'keep' && inside) continue; // ya está todo dentro
+      if (mode === 'cut' && inside) {
+        items = items.filter((x) => x !== m);
+        await db.del('markups', m.id);
+        entries.push({ op: 'del', doc: m });
+        continue;
+      }
+      const before = structuredClone(m);
+      const clip = { keep: m.clip?.keep || null, cuts: [...(m.clip?.cuts || [])] };
+      if (mode === 'cut') clip.cuts.push(rn);
+      else clip.keep = clip.keep ? [Math.max(clip.keep[0], rn[0]), Math.max(clip.keep[1], rn[1]), Math.min(clip.keep[2], rn[2]), Math.min(clip.keep[3], rn[3])] : rn;
+      m.clip = clip;
+      await db.put('markups', m);
+      entries.push({ op: 'edit', before });
+    }
+    render();
+    if (entries.length) record({ op: 'batch', entries });
+    return entries.length;
+  }
+
   return {
+    clipStart: (r) => {
+      win = [r[0] * W, r[1] * H, r[2] * W, r[3] * H];
+      renderClipWin();
+    },
+    clipCancel: () => {
+      win = null;
+      winEdit = null;
+      renderClipWin();
+    },
+    clipActive: () => !!win,
+    clipPick,
+    clipBegin: (part, p) => (winEdit = { part, start: [p.x * W, p.y * H], orig: [...win] }),
+    clipDrag,
+    clipEnd: () => (winEdit = null),
+    clipApply,
+    refreshClipWin: renderClipWin,
     hitTest, select, deselect, pickSelection, beginEdit, editTo, endEdit, recolorSelected, deleteSelected,
     selected: () => sel,
     isEditing: () => !!edit,

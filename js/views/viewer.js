@@ -108,6 +108,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
             <div class="markup-group">
               <button class="scale-chip" id="scale-chip" title="Escala del plano para las mediciones">Sin escala</button>
               <button class="btn btn-sm btn-primary hidden" id="markup-finish">Terminar</button>
+              <button class="btn btn-sm hidden clip-btn" id="clip-cut" title="Borra el resaltado que queda dentro del recuadro">✂ Borrar dentro</button>
+              <button class="btn btn-sm hidden clip-btn" id="clip-keep" title="Deja solo el resaltado que queda dentro del recuadro">⬚ Dejar solo dentro</button>
             </div>
             <div class="markup-group">
               ${MARKUP_TOOLS.map((t) => `<button class="markup-tool" data-tool="${t.id}" title="${t.n}" aria-label="${t.n}">${t.i}</button>`).join('')}
@@ -152,6 +154,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     pdfLayer?.schedule();
     stage.style.setProperty('--inv', 1 / state.scale);
     markupRef?.refreshSelection();
+    markupRef?.refreshClipWin();
     compareRef?.update();
   };
   const fit = () => {
@@ -245,6 +248,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
       pinsEl.querySelector('.pin-moving')?.classList.remove('pin-moving');
     }
     state.mode = mode;
+    if (mode !== 'draw') markupRef?.clipCancel();
     canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place' || mode === 'photo' || mode === 'movephoto');
     photoBtn.classList.toggle('btn-active', mode === 'photo');
     canvas.classList.toggle('mode-draw', mode === 'draw');
@@ -357,6 +361,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
     const finishBtn = view.querySelector('#markup-finish');
     finishBtn.classList.toggle('hidden', !pending);
     finishBtn.textContent = `Terminar (${pending} ${pending === 1 ? 'punto' : 'puntos'})`;
+    view.querySelectorAll('.clip-btn').forEach((b) => b.classList.toggle('hidden', s.tool !== 'clip'));
+    if (s.tool === 'clip' && !markup.clipActive()) startClipWindow();
+    if (s.tool !== 'clip') markup.clipCancel();
     updateScaleChip();
     const needsScale = ['measure', 'path', 'area'].includes(s.tool) && !currentSheet().calibration;
     const hints = {
@@ -367,6 +374,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
       path: 'Toca cada punto del recorrido y pulsa Terminar',
       area: 'Toca los vértices; toca el primero (o Terminar) para cerrar',
       calibrate: 'Traza una línea sobre una cota conocida del plano',
+      clip: 'Mueve y ajusta el recuadro sobre el resaltado; «Borrar dentro» quita lo que cubre',
     };
     if (needsScale) return showHint('Primero calibra la escala: pulsa «Sin escala» o usa la herramienta Calibrar');
     showHint(hints[s.tool] || 'Dibuja con un dedo · usa dos dedos para mover y hacer zoom');
@@ -378,6 +386,20 @@ export async function renderViewer(view, ctx, sheetId, params) {
     syncMarkupBar();
   }));
   view.querySelector('#markup-finish').onclick = async () => { await markup.finishMulti(); syncMarkupBar(); };
+  /** Recuadro de recorte inicial: en el centro de la zona visible del plano. */
+  function startClipWindow() {
+    const r = canvas.getBoundingClientRect();
+    const a = toPlan(r.left + r.width * 0.25, r.top + r.height * 0.3), b = toPlan(r.left + r.width * 0.75, r.top + r.height * 0.6);
+    const c = (v) => Math.min(1, Math.max(0, v));
+    markup.clipStart([c(a.x), c(a.y), c(b.x), c(b.y)]);
+  }
+  const applyClip = async (mode) => {
+    const n = await markup.clipApply(mode);
+    toast(n ? `${n} resaltado(s) recortado(s) · puedes deshacerlo con ↶` : 'El recuadro no toca ningún resaltado (rotulador o lápiz)', n ? undefined : 'error');
+    syncMarkupBar();
+  };
+  view.querySelector('#clip-cut').onclick = () => applyClip('cut');
+  view.querySelector('#clip-keep').onclick = () => applyClip('keep');
   view.querySelector('#scale-chip').onclick = () => calibrateDialog(null);
 
   // ---------- Escala / calibración ----------
@@ -511,7 +533,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
       }, LONG_PRESS_MS);
     }
     // Pulsación larga sobre una anotación: seleccionarla
-    else if (pointers.size === 1 && canTouchMarkups() && tool !== 'eraser') {
+    else if (pointers.size === 1 && canTouchMarkups() && tool !== 'eraser' && tool !== 'clip') {
       const start = { x: e.clientX, y: e.clientY };
       pressStart = start;
       longPress = setTimeout(() => {
@@ -526,7 +548,15 @@ export async function renderViewer(view, ctx, sheetId, params) {
         navigator.vibrate?.(15);
       }, LONG_PRESS_MS);
     }
-    if (pointers.size === 1 && tool && !['hand', 'text', 'path', 'area'].includes(tool)) {
+    if (tool === 'clip') {
+      // Herramienta de recorte: se arrastra el recuadro o sus tiradores; fuera de él, se mueve el plano
+      const part = pointers.size === 1 ? markup.clipPick(toPlan(e.clientX, e.clientY)) : null;
+      if (part) {
+        markup.clipBegin(part, toPlan(e.clientX, e.clientY));
+        gesture = { type: 'clipwin' };
+        return;
+      }
+    } else if (pointers.size === 1 && tool && !['hand', 'text', 'path', 'area'].includes(tool)) {
       const p = toPlan(e.clientX, e.clientY);
       if (tool === 'eraser') {
         gesture = { type: 'erase' };
@@ -554,6 +584,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
       clearTimeout(longPress);
       pressStart = null;
     }
+    if (gesture.type === 'clipwin') return markup.clipDrag(toPlan(e.clientX, e.clientY));
     if (gesture.type === 'edit') {
       showLoupe(e);
       return markup.editTo(toPlan(e.clientX, e.clientY));
@@ -602,6 +633,11 @@ export async function renderViewer(view, ctx, sheetId, params) {
     clearTimeout(longPress);
     pressStart = null;
     const g = gesture;
+    if (g?.type === 'clipwin') {
+      markup.clipEnd();
+      gesture = null;
+      return;
+    }
     if (g?.type === 'edit') {
       gesture = pointers.size ? { type: 'pan', startX: 0, startY: 0, lastX: [...pointers.values()][0].x, lastY: [...pointers.values()][0].y, moved: true } : null;
       await markup.endEdit();
