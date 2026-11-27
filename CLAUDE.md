@@ -110,6 +110,10 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     **Sin servidor push**: avisa con la app abierta/en segundo plano (cada minuto), al reabrirla (lo pendiente
     de hoy, una vez por tarea) y, con la app instalada en Chrome Android, por `periodicsync` (frecuencia que
     decide el navegador, poco fiable). Aviso → `#/p/:id/tasks?task=<id>` abre la ficha de la tarea.
+22. La app empieza siempre en la lista de proyectos: `start_url` = `./#/` y, al abrir la app (marca en
+    `sessionStorage` `obraplan.started`; no al recargar), una dirección de proyecto sin `?` se cambia a `#/`
+    (los enlaces con parámetros, como los de los avisos, se respetan). En móvil, barra superior fija
+    `.mobile-project-bar` con «‹ Proyectos» y el nombre del proyecto (no en el visor a pantalla completa).
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

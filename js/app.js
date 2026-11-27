@@ -170,6 +170,12 @@ async function route() {
         </div>
       </aside>
       <main class="content">
+        ${fullBleed ? '' : `
+        <header class="mobile-project-bar">
+          <a href="#/" class="mobile-back" aria-label="Volver a la lista de proyectos">‹ Proyectos</a>
+          <strong title="${esc(ctx.project.name)}">${esc(ctx.project.name)}</strong>
+          ${syncBadge()}
+        </header>`}
         ${readonly ? '<div class="readonly-banner">Solo lectura: eres seguidor de este proyecto. Pide a un administrador que cambie tu rol si necesitas editar.</div>' : ''}
         <div id="view" class="view"></div>
       </main>
@@ -214,6 +220,16 @@ async function boot() {
   navigator.storage?.persist?.().catch(() => {});
   const mode = await initSession();
   if (mode === 'login') return showLogin();
+  // Al abrir la app (no al recargar la pestaña) se empieza por la lista de proyectos, salvo que se abra
+  // un enlace concreto (p. ej. desde un aviso de tarea, que lleva ?task=).
+  try {
+    if (!sessionStorage.getItem('obraplan.started')) {
+      sessionStorage.setItem('obraplan.started', '1');
+      if (location.hash.startsWith('#/p/') && !location.hash.includes('?')) history.replaceState(null, '', '#/');
+    }
+  } catch {
+    /* sin sessionStorage */
+  }
   onSync((type, detail) => {
     if (type === 'status') updateBadges();
     else if (type === 'remote-change') refreshFromRemote();
