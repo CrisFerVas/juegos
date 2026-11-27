@@ -68,7 +68,7 @@ function smoothPath(pts) {
   return d + ` L${last[0]} ${last[1]}`;
 }
 
-export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration = () => null, onCalibrate = () => {} }) {
+export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration = () => null, onCalibrate = () => {}, onRecord = () => {} }) {
   const W = sheet.width, H = sheet.height;
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'markups');
@@ -87,6 +87,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
   const record = (entry) => {
     undoStack.push(entry);
     redoStack.length = 0;
+    onRecord(); // p. ej. el visor lleva un historial común con sus propias acciones
   };
   const settings = { tool: 'pen', color: MARKUP_COLORS[0].c, width: MARKUP_WIDTHS[1].w };
   try {
@@ -623,6 +624,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     setVisible: (v) => svg.classList.toggle('hidden', !v),
     canUndo: () => undoStack.length > 0,
     canRedo: () => redoStack.length > 0,
+    clearRedo: () => (redoStack.length = 0),
     count: () => items.length,
     load, start, move, end, cancel, addText, eraseAt, undo, redo, addVertex, finishMulti, multiPending, render,
     lengthOf, areaOf,

@@ -1,10 +1,10 @@
-import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue, deleteFile } from '../db.js';
+import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue, deleteFile, uid } from '../db.js';
 import { esc, toast, avatar, fmtDate, userName, modal, ICON_PHOTO_PIN } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
 import { createCompare } from '../compare.js';
-import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer, photoPinMenu, deletePhotoPin } from '../photopins.js';
+import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer, photoPinMenu, deletePhotoPin, purgePhotoFiles } from '../photopins.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 import { openExportDialog } from '../exportplan.js';
 import { normPath, prettyPath } from '../folders.js';
@@ -53,6 +53,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
         <span class="spacer"></span>
         <button class="btn write photo-btn" id="photo-mode" title="Añadir fotos en un punto del plano">${ICON_PHOTO_PIN}<span>Foto</span></button>
         <button class="btn write" id="markup-mode" title="Dibujar y escribir sobre el plano" aria-label="Anotar"><span aria-hidden="true">✎</span><span class="btn-label">Anotar</span></button>
+        <button class="icon-btn write" id="hist-undo" title="Deshacer la última acción" aria-label="Deshacer" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+        <button class="icon-btn write" id="hist-redo" title="Rehacer" aria-label="Rehacer" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
         <button class="icon-btn" id="markup-visible" title="Ocultar anotaciones" aria-label="Mostrar u ocultar anotaciones" aria-pressed="true">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
@@ -299,6 +301,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     getScale: () => state.scale,
     getCalibration: () => currentSheet().calibration,
     onCalibrate: (points) => calibrateDialog(points),
+    onRecord: () => recordHist({ src: 'markup' }),
   });
   markupRef = markup;
   const canTouchMarkups = () => canEdit(ctx.project.id) && markupsVisible && ['view', 'draw'].includes(state.mode);
@@ -330,8 +333,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
     markupBar.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === s.tool));
     markupBar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === s.color));
     markupBar.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', Number(b.dataset.width) === s.width));
-    view.querySelector('#markup-undo').disabled = !markup.canUndo();
-    view.querySelector('#markup-redo').disabled = !markup.canRedo();
+    view.querySelector('#markup-undo').disabled = !hist.undo.length;
+    view.querySelector('#markup-redo').disabled = !hist.redo.length;
     if (markup.selected()) return;
     canvas.dataset.tool = s.tool;
     const pending = markup.multiPending();
@@ -424,8 +427,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
   }
   markupBar.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { markup.setColor(b.dataset.color); syncMarkupBar(); }));
   markupBar.querySelectorAll('[data-width]').forEach((b) => (b.onclick = () => { markup.setWidth(Number(b.dataset.width)); syncMarkupBar(); }));
-  view.querySelector('#markup-undo').onclick = async () => { await markup.undo(); syncMarkupBar(); };
-  view.querySelector('#markup-redo').onclick = async () => { await markup.redo(); syncMarkupBar(); };
+  view.querySelector('#markup-undo').onclick = () => undoHist();
+  view.querySelector('#markup-redo').onclick = () => redoHist();
+  view.querySelector('#hist-undo').onclick = () => undoHist();
+  view.querySelector('#hist-redo').onclick = () => redoHist();
   view.querySelector('#markup-done').onclick = async () => {
     await markup.finishMulti();
     markup.deselect();
@@ -594,6 +599,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (g.dragging) {
       const task = ctx.tasks.find((t) => t.id === g.pinId);
       const p = toPlan(e.clientX, e.clientY);
+      recordHist({ src: 'task', taskId: task.id, before: { x: task.x, y: task.y }, after: { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) } });
       task.x = Math.min(1, Math.max(0, p.x));
       task.y = Math.min(1, Math.max(0, p.y));
       await saveTask(task, 'Reubicada en el plano', userName());
@@ -623,6 +629,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
       setMode('view');
       const saved = await addPhotoPin(ctx, sheet, p);
       if (saved) {
+        recordPhoto(saved.id, null, saved);
         await reloadPhotos();
         drawPins();
       }
@@ -691,12 +698,131 @@ export async function renderViewer(view, ctx, sheetId, params) {
     e.currentTarget.classList.toggle('active', state.photosVisible);
     drawPins();
   };
+  // ---------- Deshacer / rehacer en el plano ----------
+  // Historial común de la pantalla: anotaciones (las lleva markup.js, aquí solo su turno), fotos del plano
+  // (añadir, mover, borrar, quitar o añadir fotos a un punto) y pines de tareas movidos.
+  // Las fotos borradas no se eliminan del todo hasta salir del plano, para poder recuperarlas.
+  const hist = { undo: [], redo: [] };
+  const pinRefs = new Map(); // id de un punto de fotos -> { id } actual (al recuperarlo cambia de id)
+  const refOf = (id) => {
+    if (!pinRefs.has(id)) pinRefs.set(id, { id });
+    return pinRefs.get(id);
+  };
+  const strip = (d) => {
+    if (!d) return null;
+    const { id, _rev, ...rest } = structuredClone(d);
+    return rest;
+  };
+  function syncHistButtons() {
+    view.querySelector('#hist-undo').disabled = !hist.undo.length;
+    view.querySelector('#hist-redo').disabled = !hist.redo.length;
+    if (state.mode === 'draw') {
+      view.querySelector('#markup-undo').disabled = !hist.undo.length;
+      view.querySelector('#markup-redo').disabled = !hist.redo.length;
+    }
+  }
+  function recordHist(entry) {
+    hist.undo.push(entry);
+    if (hist.undo.length > 100) hist.undo.shift();
+    hist.redo.length = 0;
+    if (entry.src !== 'markup') markup.clearRedo();
+    syncHistButtons();
+  }
+  function recordPhoto(id, before, after) {
+    const ref = refOf(id);
+    if (after?.id && after.id !== id) pinRefs.set(after.id, ref);
+    recordHist({ src: 'photo', ref, before: strip(before), after: strip(after) });
+  }
+  /** Deja un punto de fotos como `data` (o lo quita si es null). */
+  async function setPhotoPin(ref, data) {
+    const existing = await db.get('markups', ref.id);
+    if (!data) {
+      if (existing) await db.del('markups', ref.id);
+      return;
+    }
+    if (!existing) {
+      // Un documento borrado no se puede recuperar con el mismo id (sincronización): se crea de nuevo
+      ref.id = uid();
+      pinRefs.set(ref.id, ref);
+    }
+    await db.put('markups', { ...structuredClone(data), id: ref.id });
+  }
+  async function applyHist(entry, dir) {
+    if (entry.src === 'markup') return dir === 'undo' ? markup.undo() : markup.redo();
+    const target = dir === 'undo' ? entry.before : entry.after;
+    if (entry.src === 'photo') {
+      await setPhotoPin(entry.ref, target);
+      // Las fotos que dejen de usarse se eliminarán al salir del plano (si no se rehace)
+      deferPurge([...(entry.before?.photoIds || []), ...(entry.after?.photoIds || [])]);
+      await reloadPhotos();
+    } else if (entry.src === 'task') {
+      const task = await db.get('tasks', entry.taskId);
+      if (task) {
+        Object.assign(task, target);
+        await saveTask(task, dir === 'undo' ? 'Reubicación deshecha' : 'Reubicada en el plano', userName());
+        await ctx.reload();
+      }
+    }
+  }
+  const histLabel = (e) => ({ markup: 'anotación', photo: 'foto', task: 'tarea' }[e.src]);
+  let histBusy = false;
+  async function undoHist() {
+    const e = hist.undo.pop();
+    if (!e || histBusy) return e && hist.undo.push(e);
+    histBusy = true;
+    try {
+      await applyHist(e, 'undo');
+      hist.redo.push(e);
+      toast(`Deshecho (${histLabel(e)})`);
+    } finally {
+      histBusy = false;
+    }
+    drawPins();
+    syncHistButtons();
+    if (state.mode === 'draw') syncMarkupBar();
+  }
+  async function redoHist() {
+    const e = hist.redo.pop();
+    if (!e || histBusy) return e && hist.redo.push(e);
+    histBusy = true;
+    try {
+      await applyHist(e, 'redo');
+      hist.undo.push(e);
+      toast(`Rehecho (${histLabel(e)})`);
+    } finally {
+      histBusy = false;
+    }
+    drawPins();
+    syncHistButtons();
+    if (state.mode === 'draw') syncMarkupBar();
+  }
+  // Archivos de fotos borradas: se eliminan al salir del plano si ningún punto de fotos los usa
+  const pendingPurge = new Set();
+  const deferPurge = (ids) => ids.forEach((id) => pendingPurge.add(id));
+  async function purgeDeleted() {
+    if (!pendingPurge.size) return;
+    const ids = [...pendingPurge];
+    pendingPurge.clear();
+    const used = new Set((await db.byProject('markups', ctx.project.id)).filter((m) => m.type === 'photo').flatMap((m) => m.photoIds || []));
+    await purgePhotoFiles(ctx, ids.filter((id) => !used.has(id)));
+  }
+  const viewerHash = location.hash.split('?')[0];
+  const onLeave = () => {
+    if (location.hash.split('?')[0] === viewerHash) return;
+    window.removeEventListener('hashchange', onLeave);
+    purgeDeleted();
+  };
+  window.addEventListener('hashchange', onLeave);
+  window.addEventListener('pagehide', () => purgeDeleted(), { once: true });
+
   async function movePhotoTo(id, p) {
     const doc = photoPins.find((x) => x.id === id);
     setMode('view');
     if (!doc) return drawPins();
+    const before = structuredClone(doc);
     doc.points = [[Math.min(1, Math.max(0, p.x)), Math.min(1, Math.max(0, p.y))]];
     await db.put('markups', doc);
+    recordPhoto(doc.id, before, doc);
     toast('Foto movida');
     drawPins();
   }
@@ -710,7 +836,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
         drawPins();
       },
       remove: async () => {
-        if (await deletePhotoPin(ctx, doc)) {
+        const before = structuredClone(doc);
+        if (await deletePhotoPin(ctx, doc, { keepFiles: true })) {
+          recordPhoto(doc.id, before, null);
+          deferPurge(before.photoIds);
           await reloadPhotos();
           drawPins();
         }
@@ -721,6 +850,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
   function showPhotos(doc) {
     openPhotoViewer(ctx, doc, {
       canEdit: canEdit(ctx.project.id),
+      record: (before, after) => recordPhoto(doc.id, before, after),
+      deferFiles: (ids) => deferPurge(ids),
       onChange: async () => {
         await reloadPhotos();
         drawPins();

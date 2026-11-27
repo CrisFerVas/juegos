@@ -137,6 +137,14 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     nueva (`record`) vacía `redoStack`. Al volver a crear una anotación borrada cambia su id: se actualizan las
     referencias en ambas pilas. `onTap` (editor de fotos) ya no ignora toques seguidos: solo descarta el `click`
     que sigue al `pointerup` del mismo toque (antes, dos toques rápidos en Deshacer contaban como uno).
+27. Deshacer/rehacer en el visor del plano (↶ ↷ en la barra, fila 1 en móvil) con historial común `hist` en
+    `viewer.js`: anotaciones (markup.js avisa con `onRecord`; el turno se delega a `markup.undo/redo`), fotos del
+    plano (añadir, mover, borrar punto, quitar o añadir fotos de un punto: `{ src:'photo', ref, before, after }`)
+    y pines de tareas movidos. Un punto borrado se recupera con **id nuevo** (el servidor no resucita
+    documentos borrados); `ref` compartido actualiza el id en todo el historial. Los archivos de fotos borradas
+    no se eliminan hasta **salir del plano** (`hashchange`/`pagehide` → `purgePhotoFiles` de los que ya no use
+    ningún punto); si la app se cierra de golpe quedan archivos huérfanos (solo ocupan espacio).
+    `deletePhotoPin(ctx, pin, { keepFiles })` y `openPhotoViewer(..., { record, deferFiles })`.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

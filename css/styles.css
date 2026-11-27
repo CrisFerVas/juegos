@@ -601,6 +601,8 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
   .viewer-toolbar > a.icon-btn:first-child { order: 0; }
   .viewer-toolbar .sheet-switch { order: 1; flex: 1 1 0; min-width: 0; }
   #toggle-list { order: 2; }
+  /* Deshacer / rehacer en la primera fila, junto al selector de plano (la barra sigue en dos filas) */
+  .viewer-toolbar > #hist-undo:not(#toggle-list), .viewer-toolbar > #hist-redo:not(#toggle-list) { order: 1; }
   .viewer-toolbar > .btn, .viewer-toolbar > .icon-btn:not(#toggle-list):not(:first-child), .viewer-toolbar > .zoom-group { order: 3; }
   .viewer-toolbar .btn { padding: 8px 10px; min-height: 40px; }
   .viewer-toolbar .btn-label { display: none; }
@@ -648,8 +650,8 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 .board { grid-template-columns: repeat(5, minmax(min(220px, 78vw), 1fr)); }
 .filters-more-btn { display: none; }
 @media (max-width: 900px) {
-  /* Visor: fila 1 = volver + plano + lista; fila 2 = herramientas */
-  .viewer-toolbar .sheet-switch { flex: 1 1 calc(100% - 110px); }
+  /* Visor: fila 1 = volver + plano + deshacer/rehacer + lista; fila 2 = herramientas */
+  .viewer-toolbar .sheet-switch { flex: 1 1 calc(100% - 204px); }
   .viewer-toolbar > .btn:not(#add-mode) { padding: 8px 12px; }
 
   /* Tareas: tarjetas limpias y filtros plegados */

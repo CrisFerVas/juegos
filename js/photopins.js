@@ -103,20 +103,33 @@ export function photoPinMenu(pin, { view, move, remove }) {
   );
 }
 
-/** Elimina un punto de fotos con sus fotos y anotaciones, tras confirmar. Devuelve true si se eliminó. */
-export async function deletePhotoPin(ctx, pin) {
-  const n = pin.photoIds.length;
-  if (!(await confirmDialog(n > 1 ? `¿Eliminar este punto y sus ${n} fotos?` : '¿Eliminar esta foto del plano?'))) return false;
-  await db.del('markups', pin.id);
-  for (const id of pin.photoIds) {
+/** Borra del todo los archivos de unas fotos y sus anotaciones. */
+export async function purgePhotoFiles(ctx, ids) {
+  for (const id of ids) {
     await deleteFile(id);
     await deletePhotoMarkups(ctx.project.id, id);
   }
-  toast(n > 1 ? 'Fotos eliminadas' : 'Foto eliminada');
+}
+
+/**
+ * Elimina un punto de fotos tras confirmar. Devuelve true si se eliminó.
+ * Con `keepFiles`, los archivos se conservan (para poder deshacer) y quien llama decide cuándo borrarlos.
+ */
+export async function deletePhotoPin(ctx, pin, { keepFiles = false } = {}) {
+  const n = pin.photoIds.length;
+  if (!(await confirmDialog(n > 1 ? `¿Eliminar este punto y sus ${n} fotos?` : '¿Eliminar esta foto del plano?'))) return false;
+  await db.del('markups', pin.id);
+  if (!keepFiles) await purgePhotoFiles(ctx, pin.photoIds);
+  toast(`${n > 1 ? 'Fotos eliminadas' : 'Foto eliminada'}${keepFiles ? ' · puedes deshacerlo con ↶' : ''}`);
   return true;
 }
 
-export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTask }) {
+/**
+ * Visor de las fotos de un punto. Con `record(antes, después)` (copias del punto, o null si no existe)
+ * los borrados se pueden deshacer: los archivos no se eliminan y se avisa con `deferFiles(ids)`.
+ */
+export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTask, record = null, deferFiles = null }) {
+  const snap = () => structuredClone(pin);
   let index = 0;
   let current = null; // foto montada (con anotaciones)
   const urls = await Promise.all(pin.photoIds.map(fileUrl));
@@ -170,9 +183,11 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
       if (!files.length) return;
       const ids = await savePhotos(ctx.project.id, files);
       if (!ids.length) return toast('No se pudo leer ninguna foto', 'error');
+      const before = snap();
       pin.photoIds.push(...ids);
       urls.push(...(await Promise.all(ids.map(fileUrl))));
       await db.put('markups', pin);
+      record?.(before, snap());
       index = pin.photoIds.length - 1;
       toast(`${ids.length} foto(s) añadida(s)`);
       onChange?.();
@@ -193,6 +208,7 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
     });
     root.querySelector('[data-pv=delete-one]')?.addEventListener('click', async () => {
       if (!(await confirmDialog('¿Eliminar esta foto?'))) return;
+      const before = snap();
       const [id] = pin.photoIds.splice(index, 1);
       urls.splice(index, 1);
       if (!pin.photoIds.length) {
@@ -203,13 +219,23 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
         index = Math.min(index, pin.photoIds.length - 1);
         draw();
       }
-      await deleteFile(id);
-      await deletePhotoMarkups(ctx.project.id, id);
-      toast('Foto eliminada');
+      if (record) {
+        record(before, pin.photoIds.length ? snap() : null);
+        deferFiles?.([id]);
+        toast('Foto eliminada · puedes deshacerlo con ↶');
+      } else {
+        await purgePhotoFiles(ctx, [id]);
+        toast('Foto eliminada');
+      }
       onChange?.();
     });
     root.querySelector('[data-pv=delete-all]')?.addEventListener('click', async () => {
-      if (!(await deletePhotoPin(ctx, pin))) return;
+      const before = snap();
+      if (!(await deletePhotoPin(ctx, pin, { keepFiles: !!record }))) return;
+      if (record) {
+        record(before, null);
+        deferFiles?.(before.photoIds);
+      }
       close();
       onChange?.();
     });
