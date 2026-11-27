@@ -776,3 +776,14 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 .viewer-hint.hint-action { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 16px; }
 .viewer-hint.hint-action .btn { flex: none; }
 .camera-shutter.busy span { transform: scale(.7); opacity: .6; }
+
+/* Zoom en los visores de fotos */
+.photo-frame.zoomable { touch-action: none; user-select: none; }
+.photo-frame.zoomable.zoomed { cursor: grab; }
+.photo-frame.zoomable.zoomed:active { cursor: grabbing; }
+.photo-zoom { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: flex; align-items: center; background: rgba(15, 23, 42, .72); border-radius: 99px; padding: 3px; gap: 2px; }
+.photo-zoom button { min-width: 40px; height: 36px; border: 0; border-radius: 99px; background: transparent; color: #fff; font: 600 1rem var(--font); cursor: pointer; }
+.photo-zoom button.photo-zoom-val { font-size: .8rem; min-width: 52px; }
+.photo-zoom button:disabled { opacity: .35; cursor: default; }
+.photo-zoom button:not(:disabled):hover { background: rgba(255, 255, 255, .15); }
+.pv-nav { z-index: 3; }

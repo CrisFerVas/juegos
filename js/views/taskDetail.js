@@ -305,7 +305,7 @@ async function renderDrawer(ctx, task) {
           body: `<div class="pv"><div class="pv-stage"><div class="pv-photo" id="tp-photo"></div></div>
             ${editable ? '<div class="pv-info"><div class="pv-actions"><button type="button" class="btn btn-primary" id="tp-annotate">✎ Anotar foto</button></div></div>' : ''}</div>`,
         });
-        mountAnnotatedPhoto(el.querySelector('#tp-photo'), ctx, fileId);
+        mountAnnotatedPhoto(el.querySelector('#tp-photo'), ctx, fileId, { zoomable: true });
         el.querySelector('#tp-annotate')?.addEventListener('click', async () => {
           await openPhotoAnnotator(ctx, fileId);
           close();

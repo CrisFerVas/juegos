@@ -89,11 +89,14 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     Muestra los Mpx en la cámara (tras la 1.ª foto, el tamaño real). `savePhotos` guarda el archivo original sin
     recomprimir (JPEG/PNG/WebP, con EXIF) salvo que en Ajustes › Calidad de las fotos se elija «Optimizada»
     (2560 px). Ajuste por dispositivo en `localStorage` (`obraplan.photoQuality`), por defecto «Original».
+19. Zoom en los visores de fotos (plano, tarea, parte): `mountAnnotatedPhoto(..., { zoomable: true, onSwipe })`
+    añade pellizco, doble toque, arrastrar para desplazar con zoom, deslizar para pasar de foto (solo sin zoom)
+    y botones −/100%/+. En PC: **Ctrl + rueda** amplía (también el pellizco del touchpad, que llega como
+    wheel con ctrlKey); la rueda sin Ctrl desplaza la foto ampliada (`photoWheel`, también en el editor).
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
 - Avisos (email/push) y recuperación de contraseña (requiere servicio de correo y app publicada).
-- Zoom también en los visores de fotos (de solo lectura: plano, tarea, parte).
 - Publicar el servidor (Render/Railway/Fly.io o VPS con disco persistente) cuando el usuario quiera modo equipo real.
 
 ## Preferencias del usuario

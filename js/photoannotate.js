@@ -13,9 +13,12 @@ const MAX_ZOOM = 8;
 
 /**
  * Muestra una foto con sus anotaciones, ajustada al contenedor.
- * Devuelve { layer, toPhoto(x, y), destroy() } o null si la foto no está disponible.
+ * Con `zoomable`, el usuario puede ampliarla: pellizco con dos dedos, doble toque, Ctrl + rueda del ratón
+ * y botones −/100%/+; con zoom, se desplaza arrastrando (o con la rueda). `onSwipe(±1)` recibe los
+ * deslizamientos horizontales cuando la foto no está ampliada (para pasar de foto).
+ * Devuelve { layer, toPhoto(x, y), zoomAt, panBy, resetZoom, destroy() } o null si no está disponible.
  */
-export async function mountAnnotatedPhoto(container, ctx, fileId) {
+export async function mountAnnotatedPhoto(container, ctx, fileId, { zoomable = false, onSwipe = null } = {}) {
   const url = await fileUrl(fileId);
   if (!url) {
     container.innerHTML = '<p class="pv-missing">Foto no disponible sin conexión</p>';
@@ -73,7 +76,7 @@ export async function mountAnnotatedPhoto(container, ctx, fileId) {
   await layer.load();
   const ro = new ResizeObserver(fit);
   ro.observe(container);
-  return {
+  const api = {
     layer,
     toPhoto(clientX, clientY) {
       const r = stage.getBoundingClientRect();
@@ -105,6 +108,102 @@ export async function mountAnnotatedPhoto(container, ctx, fileId) {
     onZoom(fn) { onZoom = fn; fn(zoom); },
     destroy: () => ro.disconnect(),
   };
+  if (zoomable) attachZoomGestures(container, api, { onSwipe });
+  return api;
+}
+
+/** Rueda del ratón: Ctrl + rueda (o pellizco del touchpad) amplía; sin Ctrl, desplaza la foto ampliada. */
+export function photoWheel(view) {
+  return (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault(); // evita el zoom de toda la página
+      const k = e.deltaMode === 1 ? 0.05 : 0.002;
+      view.zoomAt(Math.exp(-e.deltaY * k), e.clientX, e.clientY);
+    } else if (view.zoom > 1.001) {
+      e.preventDefault();
+      const k = e.deltaMode === 1 ? 16 : 1;
+      view.panBy(-e.deltaX * k, -e.deltaY * k);
+    }
+  };
+}
+
+/** Gestos de zoom y desplazamiento para los visores de fotos (sin dibujo). */
+function attachZoomGestures(container, view, { onSwipe }) {
+  container.classList.add('zoomable');
+  const ctrls = document.createElement('div');
+  ctrls.className = 'photo-zoom';
+  ctrls.innerHTML = `
+    <button type="button" data-z="out" aria-label="Alejar">−</button>
+    <button type="button" data-z="fit" class="photo-zoom-val" title="Ver la foto entera">100%</button>
+    <button type="button" data-z="in" aria-label="Acercar">＋</button>`;
+  container.appendChild(ctrls);
+  ctrls.addEventListener('pointerdown', (e) => e.stopPropagation());
+  const acts = { in: () => view.zoomAt(1.5), out: () => view.zoomAt(1 / 1.5), fit: () => view.resetZoom() };
+  ctrls.querySelectorAll('[data-z]').forEach((b) => onTap(b, () => acts[b.dataset.z]()));
+  view.onZoom((z) => {
+    ctrls.querySelector('.photo-zoom-val').textContent = `${Math.round(z * 100)}%`;
+    ctrls.querySelector('[data-z=out]').disabled = z <= 1.001;
+    ctrls.querySelector('[data-z=in]').disabled = z >= MAX_ZOOM;
+    container.classList.toggle('zoomed', z > 1.001);
+  });
+
+  container.addEventListener('wheel', photoWheel(view), { passive: false });
+
+  const pts = new Map();
+  let g = null;
+  let lastTap = { t: -Infinity, x: 0, y: 0 };
+  const pinchInfo = () => {
+    const [a, b] = [...pts.values()];
+    return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
+  container.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    container.setPointerCapture?.(e.pointerId);
+    if (pts.size === 2) g = { type: 'pinch', ...pinchInfo() };
+    else if (pts.size === 1) g = { type: 'drag', sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, moved: false, zoomed: view.zoom > 1.001 };
+  });
+  container.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId) || !g) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.type === 'pinch') {
+      if (pts.size < 2) return;
+      const n = pinchInfo();
+      view.panBy(n.mx - g.mx, n.my - g.my);
+      view.zoomAt(n.d / g.d, n.mx, n.my);
+      Object.assign(g, n);
+    } else if (g.type === 'drag') {
+      if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > TAP_TOLERANCE) g.moved = true;
+      if (g.zoomed) view.panBy(e.clientX - g.x, e.clientY - g.y);
+      g.x = e.clientX;
+      g.y = e.clientY;
+    }
+  });
+  const end = (e) => {
+    if (!pts.delete(e.pointerId)) return;
+    const cur = g;
+    if (cur?.type === 'pinch' || cur?.type === 'ignore') {
+      g = pts.size ? { type: 'ignore' } : null; // el dedo que queda no desplaza ni pasa de foto
+      return;
+    }
+    g = null;
+    if (!cur || e.type === 'pointercancel') return;
+    const dx = e.clientX - cur.sx, dy = e.clientY - cur.sy;
+    if (cur.moved) {
+      // Deslizar para pasar de foto (solo sin zoom)
+      if (!cur.zoomed && onSwipe && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) onSwipe(dx < 0 ? 1 : -1);
+      return;
+    }
+    // Doble toque: ampliar en ese punto o volver a la foto entera
+    const now = performance.now();
+    if (now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+      if (view.zoom > 1.001) view.resetZoom();
+      else view.zoomAt(2.5, e.clientX, e.clientY);
+      lastTap = { t: -Infinity, x: 0, y: 0 };
+    } else lastTap = { t: now, x: e.clientX, y: e.clientY };
+  };
+  container.addEventListener('pointerup', end);
+  container.addEventListener('pointercancel', end);
 }
 
 const toolIcon = (id) => MARKUP_TOOLS.find((t) => t.id === id);
@@ -217,10 +316,7 @@ export function openPhotoAnnotator(ctx, fileId) {
     onTap(el.querySelector('#pe-zin'), () => view.zoomAt(1.5));
     onTap(el.querySelector('#pe-zout'), () => view.zoomAt(1 / 1.5));
     onTap(zval, () => view.resetZoom());
-    area.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      view.zoomAt(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.002)), e.clientX, e.clientY);
-    }, { passive: false });
+    area.addEventListener('wheel', photoWheel(view), { passive: false });
 
     onTap(el.querySelector('#pe-done'), () => {
       layer.deselect();

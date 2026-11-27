@@ -233,7 +233,7 @@ export async function renderFormDetail(view, ctx, formId) {
           body: `<div class="pv"><div class="pv-stage"><div class="pv-photo" id="fp-photo"></div></div>
             ${editable ? '<div class="pv-info"><div class="pv-actions"><button type="button" class="btn btn-primary" id="fp-annotate">✎ Anotar foto</button></div></div>' : ''}</div>`,
         });
-        mountAnnotatedPhoto(el.querySelector('#fp-photo'), ctx, fileId);
+        mountAnnotatedPhoto(el.querySelector('#fp-photo'), ctx, fileId, { zoomable: true });
         el.querySelector('#fp-annotate')?.addEventListener('click', async () => {
           await openPhotoAnnotator(ctx, fileId);
           close();

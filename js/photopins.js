@@ -150,7 +150,7 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
         </div>
       </div>`;
     // Foto con sus anotaciones
-    mountAnnotatedPhoto(root.querySelector('#pv-photo'), ctx, pin.photoIds[index]).then((v) => {
+    mountAnnotatedPhoto(root.querySelector('#pv-photo'), ctx, pin.photoIds[index], { zoomable: true, onSwipe: (d) => go(d) }).then((v) => {
       if (current) current.destroy();
       current = v;
     });
@@ -221,17 +221,6 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
     draw();
   };
 
-  // Deslizar con el dedo para cambiar de foto
-  let sx = null;
-  root.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.pv-photo')) sx = e.clientX;
-  });
-  root.addEventListener('pointerup', (e) => {
-    if (sx == null) return;
-    const dx = e.clientX - sx;
-    sx = null;
-    if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
-  });
   const onKey = (e) => {
     if (!el.isConnected) return document.removeEventListener('keydown', onKey);
     if (e.key === 'ArrowLeft') go(-1);
