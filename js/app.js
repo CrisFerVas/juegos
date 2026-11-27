@@ -34,10 +34,11 @@ export function navigate(hash) {
 async function loadContext(projectId) {
   const project = await db.get('projects', projectId);
   if (!project) return null;
-  const [members, sheets, tasks] = await Promise.all([
+  const [members, sheets, tasks, folders] = await Promise.all([
     db.byProject('members', projectId),
     db.byProject('sheets', projectId),
     db.byProject('tasks', projectId),
+    db.byProject('folders', projectId),
   ]);
   members.sort((a, b) => a.name.localeCompare(b.name));
   sheets.sort((a, b) => (a.folder || '').localeCompare(b.folder || '') || a.name.localeCompare(b.name, 'es', { numeric: true }));
@@ -47,6 +48,7 @@ async function loadContext(projectId) {
     members,
     sheets,
     tasks,
+    folders,
     member: (id) => members.find((m) => m.id === id),
     sheet: (id) => sheets.find((s) => s.id === id),
     async reload() {
@@ -185,7 +187,7 @@ async function route() {
 
   const renderers = {
     dashboard: () => renderDashboard(view, ctx),
-    plans: () => (rest[0] ? renderViewer(view, ctx, rest[0], new URLSearchParams(query)) : renderPlans(view, ctx)),
+    plans: () => (rest[0] ? renderViewer(view, ctx, rest[0], new URLSearchParams(query)) : renderPlans(view, ctx, new URLSearchParams(query))),
     tasks: () => renderTasks(view, ctx),
     forms: () =>
       rest[0] === 'templates' && rest[1] ? renderTemplateEditor(view, ctx, rest[1]) : rest[0] ? renderFormDetail(view, ctx, rest[0]) : renderForms(view, ctx),

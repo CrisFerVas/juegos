@@ -1,5 +1,5 @@
 // Service worker: permite usar la app sin conexión (los datos ya viven en IndexedDB).
-const CACHE = 'obraplan-v11';
+const CACHE = 'obraplan-v12';
 const SHELL = [
   './',
   'index.html',
@@ -13,6 +13,7 @@ const SHELL = [
   'js/hires.js',
   'js/markup.js',
   'js/exportplan.js',
+  'js/folders.js',
   'js/compare.js',
   'js/photopins.js',
   'js/camera.js',

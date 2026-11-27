@@ -25,8 +25,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
   - *Equipo*: si responde `api/health`, pide login; sincroniza con el servidor.
 - **Servidor** (`server/`): Node ≥ 22.5, sin dependencias, SQLite integrado (`node:sqlite`).
   `npm start` (PORT, HOST, DATA_DIR=./data), `npm test` (10 tests de la API). `Dockerfile` incluido (no probado).
-- **Datos** (`js/db.js`, IndexedDB versión 4). Almacenes sincronizados:
-  `projects, members, sheets, tasks, files, markups, forms, templates`. Internos: `outbox`, `meta`.
+- **Datos** (`js/db.js`, IndexedDB versión 5). Almacenes sincronizados:
+  `projects, members, sheets, tasks, files, markups, forms, templates, folders`. Internos: `outbox`, `meta`.
   Al añadir un almacén: subir `VERSION` en `js/db.js`, añadirlo a `STORES`, a `SYNCED_STORES`
   en `server/store.js`, a exportar/importar en `db.js` y, si hace falta, a `sw.js`.
 - **Sincronización**: local primero. Cada `db.put/del` crea una entrada en `outbox`; `syncNow()` envía a
@@ -49,6 +49,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/forms.js`, `views/forms.js`, `views/formDetail.js`, `views/templateEditor.js` | Partes e inspecciones |
 | `js/signature.js` | Firma con el dedo |
 | `js/exportplan.js` | Descarga de planos en PDF con anotaciones/mediciones/tareas en vectorial (pdf-lib 1.17.1, cdnjs) |
+| `js/folders.js` | Carpetas y subcarpetas de planos (rutas `A/B/C` en `sheet.folder`; vacías en el almacén `folders`) |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
 
 ## Funcionalidades hechas (en orden)
@@ -73,6 +74,12 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     visor (plano actual) y «Descargar PDF» en Planos (varios en un PDF). La página PDF original se copia con
     pdf-lib (vectorial) y encima se dibuja en vectorial con la matriz inversa de `viewport.transform` de pdf.js
     (funciona con páginas giradas). Imágenes: se incrustan sin recomprimir. Fotos en el plano no se incluyen.
+16. Carpetas y subcarpetas de planos (especialidad › subespecialidad, sin límite de niveles). `sheet.folder` guarda
+    la ruta (`Instalaciones/Climatización`, `''` = raíz); las carpetas vacías se guardan en el almacén `folders`
+    (los miembros no pueden editar el documento del proyecto). Navegación por carpetas con migas en Planos
+    (`#/p/:id/plans?f=<ruta>`), crear/renombrar/mover/eliminar (al eliminar, el contenido sube un nivel),
+    subir planos a la carpeta actual o a una subcarpeta nueva, búsqueda global, el visor vuelve a la carpeta
+    del plano y agrupa el selector de planos por carpeta. Datos antiguos («Arquitectura») siguen valiendo.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

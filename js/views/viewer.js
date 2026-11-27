@@ -7,6 +7,7 @@ import { createCompare } from '../compare.js';
 import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer } from '../photopins.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 import { openExportDialog } from '../exportplan.js';
+import { normPath, prettyPath } from '../folders.js';
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
@@ -38,9 +39,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
   view.innerHTML = `
     <div class="viewer">
       <div class="viewer-toolbar">
-        <a class="icon-btn" href="#/p/${ctx.project.id}/plans" title="Volver a planos" aria-label="Volver">←</a>
+        <a class="icon-btn" href="#/p/${ctx.project.id}/plans${normPath(sheet.folder) ? `?f=${encodeURIComponent(normPath(sheet.folder))}` : ''}" title="Volver a la carpeta del plano" aria-label="Volver">←</a>
         <select id="sheet-switch" class="sheet-switch" aria-label="Cambiar de plano">
-          ${ctx.sheets.map((s) => `<option value="${s.id}" ${s.id === sheet.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+          ${sheetOptions(ctx, sheet.id)}
         </select>
         <button class="icon-btn filters-toggle" id="filters-toggle" title="Filtrar pines del plano" aria-label="Filtros" aria-expanded="false">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
@@ -771,4 +772,20 @@ export async function renderViewer(view, ctx, sheetId, params) {
     flash(focus.id);
     openTaskDrawer(ctx, focus.id);
   }
+}
+
+/** Opciones del selector de planos, agrupadas por carpeta. */
+function sheetOptions(ctx, selectedId) {
+  const groups = new Map();
+  for (const s of ctx.sheets) {
+    const f = normPath(s.folder);
+    if (!groups.has(f)) groups.set(f, []);
+    groups.get(f).push(s);
+  }
+  const opt = (s) => `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)}</option>`;
+  if (groups.size === 1 && groups.has('')) return ctx.sheets.map(opt).join('');
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, 'es', { numeric: true }))
+    .map(([f, list]) => `<optgroup label="${esc(prettyPath(f))}">${list.map(opt).join('')}</optgroup>`)
+    .join('');
 }

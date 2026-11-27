@@ -2,37 +2,75 @@ import { db, saveFile, deleteFile, fileUrl, uid, statusOf } from '../db.js';
 import { esc, modal, toast, confirmDialog, pickFiles, userName } from '../ui.js';
 import { fileToSheets } from '../media.js';
 import { openExportDialog } from '../exportplan.js';
+import {
+  SUGGESTED_FOLDERS, allFolders, childFolders, sheetsIn, normPath, parentOf, baseName, cleanName, isInside, prettyPath,
+  folderOptions, folderPickerHTML, folderFromForm, createFolder, moveFolder, deleteFolder,
+} from '../folders.js';
 
-const FOLDERS = ['Arquitectura', 'Estructura', 'Instalaciones', 'Electricidad', 'Fontanería', 'Climatización', 'Urbanización', 'Otros'];
+const ICON_FOLDER = '<svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
 
-export async function renderPlans(view, ctx) {
-  const { sheets, tasks, project } = ctx;
+export async function renderPlans(view, ctx, params = new URLSearchParams()) {
+  const { tasks, project } = ctx;
+  const allPaths = allFolders(ctx);
+  // Carpeta actual (desde el enlace); si ya no existe, se vuelve a la superior que exista
+  let current = normPath(params.get('f') || '');
+  while (current && !allPaths.includes(current)) current = parentOf(current);
+  const folderHref = (p) => `#/p/${project.id}/plans${p ? `?f=${encodeURIComponent(p)}` : ''}`;
+
   const q = (view.dataset.q || '').toLowerCase();
-  const filtered = sheets.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.folder || '').toLowerCase().includes(q));
-  const groups = {};
-  filtered.forEach((s) => (groups[s.folder || 'Sin carpeta'] ||= []).push(s));
+  const searching = !!q;
+  const sheets = searching
+    ? ctx.sheets.filter((s) => s.name.toLowerCase().includes(q) || (s.folder || '').toLowerCase().includes(q))
+    : sheetsIn(ctx, current);
+  const folders = searching ? allPaths.filter((p) => baseName(p).toLowerCase().includes(q)) : childFolders(ctx, current);
   const thumbs = Object.fromEntries(await Promise.all(sheets.map(async (s) => [s.id, await fileUrl(s.thumbId || s.fileId)])));
+  const crumbs = current ? current.split('/').map((name, i, arr) => ({ name, path: arr.slice(0, i + 1).join('/') })) : [];
+  const totalHere = sheetsIn(ctx, current, true).length;
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Planos</h1><p class="muted">${sheets.length} plano(s) · toca un plano para abrirlo y añadir tareas sobre él.</p></div>
+      <div>
+        <h1>${current ? esc(baseName(current)) : 'Planos'}</h1>
+        ${current ? `
+        <nav class="breadcrumb" aria-label="Ruta de carpetas">
+          <a href="${folderHref('')}">Planos</a>
+          ${crumbs.map((c, i) => `<span aria-hidden="true">›</span>${i === crumbs.length - 1 ? `<strong>${esc(c.name)}</strong>` : `<a href="${folderHref(c.path)}">${esc(c.name)}</a>`}`).join('')}
+        </nav>` : `<p class="muted">${ctx.sheets.length} plano(s) · organízalos en carpetas y subcarpetas por especialidad.</p>`}
+      </div>
       <div class="actions">
-        <input type="search" class="search" id="q" placeholder="Buscar plano..." value="${esc(view.dataset.q || '')}" />
-        ${sheets.length ? '<button class="btn" id="export-pdf" title="Descargar planos en PDF con anotaciones">⤓ Descargar PDF</button>' : ''}
+        <input type="search" class="search" id="q" placeholder="Buscar plano o carpeta..." value="${esc(view.dataset.q || '')}" />
+        ${totalHere ? '<button class="btn" id="export-pdf" title="Descargar planos en PDF con anotaciones">⤓ Descargar PDF</button>' : ''}
+        <button class="btn write" id="new-folder">＋ ${current ? 'Subcarpeta' : 'Carpeta'}</button>
         <button class="btn btn-primary write" id="upload">⇪ Subir planos</button>
       </div>
     </div>
-    ${sheets.length === 0 ? `
-      <div class="empty dropzone" id="drop">
-        <div class="empty-icon">📐</div>
-        <h2>Sube tus planos</h2>
-        <p class="muted">PDF (multipágina) o imágenes (JPG, PNG). Puedes arrastrarlos aquí.</p>
-        <button class="btn btn-primary write" id="upload2">Seleccionar archivos</button>
-      </div>` : Object.entries(groups).map(([folder, list]) => `
+    ${current && !searching ? `<a class="btn btn-sm folder-up" href="${folderHref(parentOf(current))}">← ${esc(parentOf(current) ? baseName(parentOf(current)) : 'Planos')}</a>` : ''}
+    ${folders.length ? `
       <section class="folder">
-        <h2 class="folder-title">📁 ${esc(folder)} <span class="muted small">${list.length}</span></h2>
+        ${searching ? '<h2 class="folder-title">Carpetas</h2>' : ''}
+        <div class="grid folder-grid">
+          ${folders.map((p) => {
+            const n = sheetsIn(ctx, p, true).length;
+            const subs = childFolders(ctx, p).length;
+            return `
+            <article class="card folder-card">
+              <a class="folder-link" href="${folderHref(p)}">
+                <span class="folder-icon">${ICON_FOLDER}</span>
+                <span class="folder-text">
+                  <strong title="${esc(p)}">${esc(baseName(p))}</strong>
+                  <small class="muted">${searching && parentOf(p) ? `${esc(prettyPath(parentOf(p)))} · ` : ''}${n} plano(s)${subs ? ` · ${subs} subcarpeta(s)` : ''}</small>
+                </span>
+              </a>
+              <button class="icon-btn write" data-folder="${esc(p)}" aria-label="Opciones de la carpeta ${esc(baseName(p))}">⋯</button>
+            </article>`;
+          }).join('')}
+        </div>
+      </section>` : ''}
+    ${sheets.length ? `
+      <section class="folder">
+        ${folders.length || searching ? `<h2 class="folder-title">Planos <span class="muted small">${sheets.length}</span></h2>` : ''}
         <div class="grid sheets">
-          ${list.map((s) => {
+          ${sheets.map((s) => {
             const st = tasks.filter((t) => t.sheetId === s.id);
             const open = st.filter((t) => statusOf(t.status).open).length;
             return `
@@ -41,19 +79,26 @@ export async function renderPlans(view, ctx) {
               <div class="sheet-meta">
                 <div>
                   <strong title="${esc(s.name)}">${esc(s.name)}</strong>
-                  <p class="muted small">v${s.version || 1} · ${open} abiertas / ${st.length} tareas</p>
+                  <p class="muted small">${searching ? `${esc(prettyPath(normPath(s.folder)))} · ` : ''}v${s.version || 1} · ${open} abiertas / ${st.length} tareas</p>
                 </div>
                 <button class="icon-btn write" data-edit="${s.id}" aria-label="Editar plano">⋯</button>
               </div>
             </article>`;
           }).join('')}
         </div>
-      </section>`).join('')}`;
+      </section>` : ''}
+    ${!sheets.length && !folders.length ? (searching ? '<div class="empty"><p class="muted">No hay planos ni carpetas que coincidan.</p></div>' : `
+      <div class="empty dropzone" id="drop">
+        <div class="empty-icon">📐</div>
+        <h2>${current ? 'Carpeta vacía' : 'Sube tus planos'}</h2>
+        <p class="muted">${current ? 'Sube planos aquí o crea subcarpetas para dividir las subespecialidades.' : 'PDF (multipágina) o imágenes (JPG, PNG). Puedes arrastrarlos aquí. También puedes crear carpetas por especialidad.'}</p>
+        <button class="btn btn-primary write" id="upload2">Seleccionar archivos</button>
+      </div>`) : ''}`;
 
   const qInput = view.querySelector('#q');
   qInput.addEventListener('input', () => {
     view.dataset.q = qInput.value;
-    renderPlans(view, ctx).then(() => {
+    renderPlans(view, ctx, params).then(() => {
       const i = view.querySelector('#q');
       i.focus();
       i.setSelectionRange(i.value.length, i.value.length);
@@ -62,10 +107,11 @@ export async function renderPlans(view, ctx) {
 
   const doUpload = async (files) => {
     if (!files.length) return;
-    uploadDialog(ctx, files);
+    uploadDialog(ctx, files, current);
   };
   view.querySelector('#upload').addEventListener('click', async () => doUpload(await pickFiles({ accept: 'application/pdf,image/*', multiple: true })));
   view.querySelector('#upload2')?.addEventListener('click', async () => doUpload(await pickFiles({ accept: 'application/pdf,image/*', multiple: true })));
+  view.querySelector('#new-folder').addEventListener('click', () => newFolderDialog(ctx, current));
 
   // Arrastrar y soltar en toda la vista
   view.ondragover = (e) => {
@@ -81,21 +127,88 @@ export async function renderPlans(view, ctx) {
     doUpload([...e.dataTransfer.files]);
   };
 
-  view.querySelector('#export-pdf')?.addEventListener('click', () => openExportDialog(ctx, sheets, { choose: true }));
+  view.querySelector('#export-pdf')?.addEventListener('click', () => openExportDialog(ctx, sheetsIn(ctx, current, true), { choose: true }));
   view.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => editSheet(ctx, ctx.sheet(b.dataset.edit))));
+  view.querySelectorAll('[data-folder]').forEach((b) => b.addEventListener('click', () => editFolderDialog(ctx, b.dataset.folder, current)));
 }
 
-function folderSelect(selected) {
-  return `<input name="folder" list="folders" value="${esc(selected || '')}" placeholder="Ej. Arquitectura" />
-    <datalist id="folders">${FOLDERS.map((f) => `<option value="${f}"></option>`).join('')}</datalist>`;
+function newFolderDialog(ctx, parent) {
+  modal({
+    title: parent ? `Nueva subcarpeta en ${baseName(parent)}` : 'Nueva carpeta',
+    body: `
+      <label class="field"><span>Nombre *</span>
+        <input name="name" required list="folder-suggest-new" autocomplete="off" placeholder="${parent ? 'Ej. Ventilación, Extinción, Baja tensión' : 'Ej. Instalaciones'}" />
+        <datalist id="folder-suggest-new">${SUGGESTED_FOLDERS.map((f) => `<option value="${esc(f)}"></option>`).join('')}</datalist>
+      </label>
+      <label class="field"><span>Dentro de</span><select name="parent">${folderOptions(ctx, parent)}</select></label>`,
+    submitLabel: 'Crear',
+    onSubmit: async (v) => {
+      const name = cleanName(v.name);
+      if (!name) return false;
+      const path = normPath(`${v.parent}/${name}`);
+      if (allFolders(ctx).includes(path)) {
+        toast('Ya existe una carpeta con ese nombre', 'error');
+        return false;
+      }
+      await createFolder(ctx, path);
+      toast(`Carpeta «${name}» creada`);
+      ctx.rerender();
+    },
+  });
 }
 
-function uploadDialog(ctx, files) {
+function editFolderDialog(ctx, path, current) {
+  const n = sheetsIn(ctx, path, true).length;
+  const subs = allFolders(ctx).filter((p) => p !== path && isInside(p, path)).length;
+  const { el, close } = modal({
+    title: 'Carpeta',
+    body: `
+      <label class="field"><span>Nombre *</span><input name="name" required value="${esc(baseName(path))}" /></label>
+      <label class="field"><span>Dentro de</span><select name="parent">${folderOptions(ctx, parentOf(path), { exclude: path })}</select></label>
+      <p class="muted small">${n} plano(s)${subs ? ` y ${subs} subcarpeta(s)` : ''}. Al renombrar o mover, todo su contenido se mueve con ella.</p>
+      <hr />
+      <button type="button" class="btn btn-danger btn-sm" id="del-folder">Eliminar carpeta</button>`,
+    onSubmit: async (v) => {
+      const name = cleanName(v.name);
+      if (!name) return false;
+      const to = normPath(`${v.parent}/${name}`);
+      if (to === path) return;
+      if (allFolders(ctx).includes(to)) {
+        toast('Ya existe una carpeta con ese nombre en ese lugar', 'error');
+        return false;
+      }
+      try {
+        await moveFolder(ctx, path, to);
+      } catch (err) {
+        toast(err.message, 'error');
+        return false;
+      }
+      toast('Carpeta actualizada');
+      // Si se estaba dentro de la carpeta movida, se sigue en su nueva ubicación
+      if (current && isInside(current, path)) location.hash = `#/p/${ctx.project.id}/plans?f=${encodeURIComponent(to + current.slice(path.length))}`;
+      else ctx.rerender();
+    },
+  });
+  el.querySelector('#del-folder').addEventListener('click', async () => {
+    const parent = parentOf(path);
+    const msg = n || subs
+      ? `¿Eliminar la carpeta «${baseName(path)}»? Sus ${n} plano(s)${subs ? ` y ${subs} subcarpeta(s)` : ''} no se borran: pasan a «${parent ? baseName(parent) : 'Planos'}».`
+      : `¿Eliminar la carpeta vacía «${baseName(path)}»?`;
+    if (!(await confirmDialog(msg))) return;
+    await deleteFolder(ctx, path);
+    close();
+    toast('Carpeta eliminada');
+    if (current && isInside(current, path)) location.hash = `#/p/${ctx.project.id}/plans${parent ? `?f=${encodeURIComponent(parent)}` : ''}`;
+    else ctx.rerender();
+  });
+}
+
+function uploadDialog(ctx, files, current = '') {
   modal({
     title: 'Subir planos',
     body: `
       <p class="muted small">${files.map((f) => esc(f.name)).join('<br>')}</p>
-      <label class="field"><span>Carpeta / disciplina</span>${folderSelect('Arquitectura')}</label>
+      ${folderPickerHTML(ctx, current)}
       <p class="muted small">Cada página de un PDF se convierte en un plano independiente. Se conserva el archivo original para verlo con toda su calidad al hacer zoom.</p>
       <div id="up-status" class="muted small"></div>`,
     submitLabel: 'Subir',
@@ -103,6 +216,8 @@ function uploadDialog(ctx, files) {
       const status = form.querySelector('#up-status');
       form.querySelector('[type=submit]').disabled = true;
       let count = 0;
+      const folder = folderFromForm(v);
+      if (folder) await createFolder(ctx, folder);
       for (const file of files) {
         try {
           const { pdf, sheets: pages } = await fileToSheets(file, (i, n) => (status.textContent = `Procesando ${file.name}: página ${i} de ${n}...`));
@@ -114,7 +229,7 @@ function uploadDialog(ctx, files) {
               id: uid(),
               projectId: ctx.project.id,
               name: p.name,
-              folder: v.folder || 'Sin carpeta',
+              folder,
               version: 1,
               fileId: await saveFile(ctx.project.id, p.blob, p.name),
               thumbId: await saveFile(ctx.project.id, p.thumb, p.name + ' (miniatura)'),
@@ -159,7 +274,7 @@ function editSheet(ctx, sheet) {
     title: 'Editar plano',
     body: `
       <label class="field"><span>Nombre *</span><input name="name" required value="${esc(sheet.name)}" /></label>
-      <label class="field"><span>Carpeta / disciplina</span>${folderSelect(sheet.folder)}</label>
+      ${folderPickerHTML(ctx, normPath(sheet.folder))}
       <div class="field"><span>Versiones</span>
         <ul class="version-list">
           <li><strong>${esc(vLabel({ ...sheet, createdAt: sheet.createdAt }))}</strong> <span class="pill">Actual</span></li>
@@ -179,7 +294,8 @@ function editSheet(ctx, sheet) {
       <button type="button" class="btn btn-danger btn-sm" id="del">Eliminar plano</button>`,
     onSubmit: async (v) => {
       sheet.name = v.name.trim();
-      sheet.folder = v.folder.trim() || 'Sin carpeta';
+      sheet.folder = folderFromForm(v);
+      if (sheet.folder) await createFolder(ctx, sheet.folder);
       await db.put('sheets', sheet);
       ctx.rerender();
     },

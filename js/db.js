@@ -3,8 +3,8 @@
 // Almacenes internos: outbox (cambios pendientes de sincronizar) y meta (cursores, etc.).
 
 let dbName = 'obraplan';
-const VERSION = 4;
-export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups', 'forms', 'templates'];
+const VERSION = 5;
+export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups', 'forms', 'templates', 'folders'];
 
 let dbPromise;
 
@@ -290,7 +290,7 @@ function blobToDataURL(blob) {
 export async function exportProject(projectId) {
   const out = { format: 'obraplan-backup', version: 1, exportedAt: new Date().toISOString() };
   out.project = await db.get('projects', projectId);
-  for (const store of ['members', 'sheets', 'tasks', 'markups', 'forms', 'templates']) out[store] = await db.byProject(store, projectId);
+  for (const store of ['members', 'sheets', 'tasks', 'markups', 'forms', 'templates', 'folders']) out[store] = await db.byProject(store, projectId);
   const files = await db.byProject('files', projectId);
   out.files = [];
   for (const f of files) {
@@ -331,6 +331,7 @@ export async function importProject(backup) {
     const sheetId = String(m.sheetId || '').startsWith('photo:') ? `photo:${remap(m.sheetId.slice(6))}` : remap(m.sheetId);
     await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId, ...(m.photoIds ? { photoIds: m.photoIds.map(remap) } : {}) });
   }
+  for (const f of backup.folders || []) await db.put('folders', { ...f, id: remap(f.id), projectId: pid });
   for (const t of backup.templates || []) await db.put('templates', { ...t, id: remap(t.id), projectId: pid });
   for (const fm of backup.forms || []) {
     // Las plantillas incluidas ('tpl-...') conservan su identificador
