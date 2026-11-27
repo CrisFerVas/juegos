@@ -2,6 +2,10 @@
 
 Resumen de todo lo necesario para retomar el trabajo. Documentación de uso en `README.md`.
 
+> **Instrucciones para Claude**: este archivo es la guía del proyecto. Léelo antes de trabajar y sigue sus
+> convenciones. Al terminar cada funcionalidad o decisión importante, **actualízalo** (lista de hechas,
+> pendientes, trampas conocidas) en el mismo commit, para que la siguiente sesión pueda continuar desde aquí.
+
 ## Qué es
 App web de gestión de obra (inspirada en Fieldwire, con nombre y diseño propios): planos con tareas
 ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, partes e inspecciones.
