@@ -1,6 +1,7 @@
 import { db, saveFile, deleteFile, fileUrl, uid, statusOf } from '../db.js';
 import { esc, modal, toast, confirmDialog, pickFiles, userName } from '../ui.js';
 import { fileToSheets } from '../media.js';
+import { openExportDialog } from '../exportplan.js';
 
 const FOLDERS = ['Arquitectura', 'Estructura', 'Instalaciones', 'Electricidad', 'Fontanería', 'Climatización', 'Urbanización', 'Otros'];
 
@@ -17,6 +18,7 @@ export async function renderPlans(view, ctx) {
       <div><h1>Planos</h1><p class="muted">${sheets.length} plano(s) · toca un plano para abrirlo y añadir tareas sobre él.</p></div>
       <div class="actions">
         <input type="search" class="search" id="q" placeholder="Buscar plano..." value="${esc(view.dataset.q || '')}" />
+        ${sheets.length ? '<button class="btn" id="export-pdf" title="Descargar planos en PDF con anotaciones">⤓ Descargar PDF</button>' : ''}
         <button class="btn btn-primary write" id="upload">⇪ Subir planos</button>
       </div>
     </div>
@@ -79,6 +81,7 @@ export async function renderPlans(view, ctx) {
     doUpload([...e.dataTransfer.files]);
   };
 
+  view.querySelector('#export-pdf')?.addEventListener('click', () => openExportDialog(ctx, sheets, { choose: true }));
   view.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => editSheet(ctx, ctx.sheet(b.dataset.edit))));
 }
 

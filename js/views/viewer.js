@@ -6,6 +6,7 @@ import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
 import { createCompare } from '../compare.js';
 import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer } from '../photopins.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
+import { openExportDialog } from '../exportplan.js';
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
@@ -61,6 +62,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
           <button class="icon-btn" id="zoom-fit" aria-label="Ajustar" title="Ajustar a pantalla">⤢</button>
           <button class="icon-btn" id="zoom-in" aria-label="Acercar">＋</button>
         </div>
+        <button class="icon-btn" id="export-pdf" title="Descargar el plano en PDF con anotaciones" aria-label="Descargar PDF">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        </button>
         <button class="icon-btn" id="toggle-list" title="Lista de tareas" aria-label="Lista de tareas">☰</button>
       </div>
       <div class="viewer-main">
@@ -636,6 +640,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   view.querySelector('#zoom-in').onclick = () => zoomCenter(1.4);
   view.querySelector('#zoom-out').onclick = () => zoomCenter(1 / 1.4);
   view.querySelector('#zoom-fit').onclick = fit;
+  view.querySelector('#export-pdf').onclick = () => openExportDialog(ctx, [currentSheet()]);
   view.querySelector('#filters-toggle').onclick = (e) => {
     const tb = view.querySelector('.viewer-toolbar');
     const open = tb.classList.toggle('show-filters');

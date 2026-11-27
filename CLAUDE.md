@@ -48,6 +48,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/camera.js` | Cámara integrada (getUserMedia) con alternativa si está bloqueada |
 | `js/forms.js`, `views/forms.js`, `views/formDetail.js`, `views/templateEditor.js` | Partes e inspecciones |
 | `js/signature.js` | Firma con el dedo |
+| `js/exportplan.js` | Descarga de planos en PDF con anotaciones/mediciones/tareas en vectorial (pdf-lib 1.17.1, cdnjs) |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
 
 ## Funcionalidades hechas (en orden)
@@ -67,6 +68,11 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     tarea desde no conformidad.
 13. Zoom en el editor de fotos: pellizco con dos dedos (zoom + paneo, cancela el trazo en curso), rueda del
     ratón y botones −/100%/+ (hasta 800 %). `mountAnnotatedPhoto` expone `zoomAt/panBy/resetZoom/onZoom`.
+14. Almacenamiento persistente del navegador; permisos de la carpeta de datos en Docker.
+15. Descargar planos en PDF con anotaciones, mediciones y pines de tareas en la calidad original: botón ⤓ del
+    visor (plano actual) y «Descargar PDF» en Planos (varios en un PDF). La página PDF original se copia con
+    pdf-lib (vectorial) y encima se dibuja en vectorial con la matriz inversa de `viewport.transform` de pdf.js
+    (funciona con páginas giradas). Imágenes: se incrustan sin recomprimir. Fotos en el plano no se incluyen.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
@@ -86,8 +92,12 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
   críticos responden también a `pointerup` con antiduplicado (inicializar a `-Infinity`, no a 0).
 - Capas del plano (z-index): imagen base < `.hires` < comparación < `.markups` < `.pins`.
 - pdf.js 3.11.174 desde cdnjs, worker creado desde un blob. En el contenedor de pruebas cdnjs está bloqueado:
-  las pruebas sirven pdf.js local (npm `pdfjs-dist@3.11.174`) interceptando la URL.
+  las pruebas sirven pdf.js local (npm `pdfjs-dist@3.11.174`) y pdf-lib (npm `pdf-lib@1.17.1`) interceptando la URL.
 - En la vista previa de Claude: sin cámara, sin descargas, sin `window.open`/imprimir.
+- Nombres de descarga solo en ASCII (`safeName` en `exportplan.js`): Chrome sin interfaz descarta el nombre
+  si lleva tildes o «–» y guarda como «download». La fuente del PDF exportado es Helvetica estándar (WinAnsi):
+  símbolos fuera de ese juego se sustituyen (→ por ->) o salen como «?».
+- pdf-lib usa nombres propios en sus enumeraciones (`TextRenderingMode.Outline`, no `Stroke`).
 - Pruebas de pellizco en Playwright: usar CDP `Input.dispatchTouchEvent` con varios `touchPoints`
   (genera eventos pointer reales; los `PointerEvent` sintéticos fallan en `setPointerCapture`).
 - Las pruebas end-to-end (Playwright) se escribieron en el directorio temporal de la sesión, **no están en el repo**;
