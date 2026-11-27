@@ -71,6 +71,12 @@ export function renderSettings(view, ctx) {
       </section>
 
       <section class="card">
+        <h3>Versión de la app</h3>
+        <p class="small">Instalada: <strong id="app-version">…</strong></p>
+        <p class="muted small">Si acabas de recibir una actualización y no la ves, cierra la app (o la pestaña) y vuelve a abrirla.</p>
+      </section>
+
+      <section class="card">
         <h3>Copia de seguridad</h3>
         <p class="muted small">Los datos se guardan en este navegador. Exporta el proyecto (incluye planos y fotos) para guardarlo o compartirlo; se importa desde la pantalla de proyectos.</p>
         <button class="btn" id="export">⇩ Exportar proyecto (.json)</button>
@@ -108,6 +114,18 @@ export function renderSettings(view, ctx) {
     toast('Nombre guardado');
   });
   renderReminders(view.querySelector('#reminders-body'), ctx);
+  (async () => {
+    // La versión es el nombre de la caché del service worker (obraplan-vNN), que cambia con cada actualización
+    let v = 'sin conexión de servicio';
+    try {
+      const keys = (await caches.keys()).filter((k) => /^obraplan-v\d+$/.test(k)).sort((a, b) => Number(b.slice(10)) - Number(a.slice(10)));
+      if (keys[0]) v = keys[0].replace('obraplan-', '');
+    } catch {
+      /* sin Cache API */
+    }
+    const el = view.querySelector('#app-version');
+    if (el) el.textContent = v;
+  })();
 
   const qCard = view.querySelector('#photo-quality');
   const qHelp = () => {

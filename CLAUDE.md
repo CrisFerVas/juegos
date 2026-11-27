@@ -120,6 +120,12 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     y la foto se recorta al centro (menos píxeles). Para que el pellizco no amplíe la página (el disparador
     quedaba fuera de pantalla), mientras la cámara está abierta: `touch-action: none`, `touchmove` con
     `preventDefault` y la meta viewport con `maximum-scale=1, user-scalable=no` (se restaura al cerrar).
+24. Actualizaciones que llegan enseguida: el SW pide los archivos propios con `cache: 'no-cache'` (GitHub Pages
+    envía `max-age=600` y el teléfono podía seguir con la versión anterior; el vídeo del usuario mostraba la
+    cámara sin el botón de zoom), instala con `cache: 'reload'`, se registra con `updateViaCache: 'none'` y
+    busca actualización al volver a la app; en `controllerchange` (había versión anterior) la página se recarga
+    sola cuando no hay nada abierto encima. Ajustes › Versión de la app muestra la versión (nombre de la caché
+    `obraplan-vNN`): **subir `CACHE` en `sw.js` con cada cambio**.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

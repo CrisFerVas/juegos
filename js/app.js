@@ -253,5 +253,24 @@ function showLogin(message) {
 boot();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // updateViaCache 'none': al buscar actualizaciones no se usa la caché del navegador (ni para sw.js ni
+  // para los scripts que importa). Se vuelve a comprobar cada vez que se vuelve a la app.
+  navigator.serviceWorker
+    .register('sw.js', { updateViaCache: 'none' })
+    .then((reg) => document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update().catch(() => {})))
+    .catch(() => {});
+  // Cuando se instala una versión nueva de la app, se recarga para usarla (solo si había una versión
+  // anterior controlando la página y no hay nada abierto encima: cámara, diálogos, editor, ficha...).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloadPending = false;
+  const reloadIfIdle = () => {
+    const busy = document.querySelector('#modal-root > *, .camera, .photo-editor, .drawer') || document.activeElement?.matches('input, textarea, select');
+    if (busy) return setTimeout(reloadIfIdle, 3000);
+    location.reload();
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloadPending) return;
+    reloadPending = true;
+    reloadIfIdle();
+  });
 }

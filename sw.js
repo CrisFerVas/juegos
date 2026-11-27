@@ -1,7 +1,7 @@
 // Service worker: permite usar la app sin conexión (los datos ya viven en IndexedDB)
 // y muestra los avisos de tareas pendientes (sincronización periódica en segundo plano).
 importScripts('js/reminders-core.js');
-const CACHE = 'obraplan-v20';
+const CACHE = 'obraplan-v21';
 const SHELL = [
   './',
   'index.html',
@@ -40,7 +40,7 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -58,8 +58,12 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.includes('/api/')) return;
   const cacheable = url.origin === self.location.origin || url.hostname === 'cdnjs.cloudflare.com';
   if (!cacheable) return;
+  // Archivos de la app: siempre se pregunta al servidor si hay versión nueva (GitHub Pages permite
+  // guardarlos 10 min en la caché del navegador y las actualizaciones tardaban en llegar).
+  // La comprobación es ligera: si no cambió, el servidor responde «304 sin cambios».
+  const sameOrigin = url.origin === self.location.origin;
   e.respondWith(
-    fetch(request)
+    fetch(request, sameOrigin ? { cache: 'no-cache' } : undefined)
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
