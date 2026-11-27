@@ -117,8 +117,9 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 23. Zoom en la cámara integrada: pellizco sobre la imagen o botón 1× → 2× → 5×. Si la cámara ofrece `zoom` en
     `track.getCapabilities()` (Chrome Android) se usa `applyConstraints({ advanced: [{ zoom }] })` (en cola, solo
     el último valor) y la foto sale a resolución completa; si no, zoom digital: la vista previa se escala con CSS
-    y la foto se recorta al centro (menos píxeles). `.camera` tiene `touch-action: none` (antes el pellizco
-    ampliaba toda la página).
+    y la foto se recorta al centro (menos píxeles). Para que el pellizco no amplíe la página (el disparador
+    quedaba fuera de pantalla), mientras la cámara está abierta: `touch-action: none`, `touchmove` con
+    `preventDefault` y la meta viewport con `maximum-scale=1, user-scalable=no` (se restaura al cerrar).
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
@@ -146,6 +147,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
   `takePhoto` da 3840×2160; por eso la etiqueta de Mpx usa el mayor de ambos y luego el tamaño real.
 - pdf-lib usa nombres propios en sus enumeraciones (`TextRenderingMode.Outline`, no `Stroke`).
 - Toda capa nueva que tape la pantalla debe registrarse con `trackOverlay` (los `modal()` ya lo hacen).
+- Chromium sin interfaz (aun con `isMobile`) no aplica el zoom de página por pellizco: los problemas de
+  zoom de página en Android no se pueden reproducir en las pruebas; hay que confirmarlos en el teléfono.
 - Pruebas de pellizco en Playwright: usar CDP `Input.dispatchTouchEvent` con varios `touchPoints`
   (genera eventos pointer reales; los `PointerEvent` sintéticos fallan en `setPointerCapture`).
 - Las pruebas end-to-end (Playwright) se escribieron en el directorio temporal de la sesión, **no están en el repo**;

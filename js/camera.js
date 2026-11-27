@@ -70,6 +70,16 @@ export async function openCamera() {
         <button type="button" class="camera-done" data-cam="done" disabled>Listo</button>
       </div>`;
     document.body.appendChild(el);
+    // Mientras la cámara está abierta, el pellizco no debe ampliar la página (el botón de disparar
+    // quedaría fuera de la pantalla): se bloquea el zoom de la página y se restablece al cerrar.
+    const viewport = document.querySelector('meta[name=viewport]');
+    const viewportBefore = viewport?.getAttribute('content');
+    viewport?.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover');
+    const stopPageZoom = (e) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener('touchmove', stopPageZoom, { passive: false });
+    el.addEventListener('gesturestart', stopPageZoom); // Safari
     // Atrás del móvil: cierra la cámara conservando las fotos ya hechas
     trackOverlay(el, () => finish(shots.map((s) => s.file)));
     const video = el.querySelector('video');
@@ -78,6 +88,7 @@ export async function openCamera() {
 
     const finish = (files) => {
       stream?.getTracks().forEach((t) => t.stop());
+      if (viewport && viewportBefore != null) viewport.setAttribute('content', viewportBefore);
       el.remove();
       resolve(files);
     };
