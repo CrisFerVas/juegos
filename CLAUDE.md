@@ -114,6 +114,11 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     `sessionStorage` `obraplan.started`; no al recargar), una dirección de proyecto sin `?` se cambia a `#/`
     (los enlaces con parámetros, como los de los avisos, se respetan). En móvil, barra superior fija
     `.mobile-project-bar` con «‹ Proyectos» y el nombre del proyecto (no en el visor a pantalla completa).
+23. Zoom en la cámara integrada: pellizco sobre la imagen o botón 1× → 2× → 5×. Si la cámara ofrece `zoom` en
+    `track.getCapabilities()` (Chrome Android) se usa `applyConstraints({ advanced: [{ zoom }] })` (en cola, solo
+    el último valor) y la foto sale a resolución completa; si no, zoom digital: la vista previa se escala con CSS
+    y la foto se recorta al centro (menos píxeles). `.camera` tiene `touch-action: none` (antes el pellizco
+    ampliaba toda la página).
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
