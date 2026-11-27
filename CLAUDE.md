@@ -39,7 +39,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | Archivo | Función |
 | --- | --- |
 | `js/app.js` | Enrutador por hash `#/p/:id/<sección>/...`, menú, estado de sincronización |
-| `js/media.js` | PDF → imagen base PNG (≤16 Mpx, límite iOS) + PDF original; fotos a 2560 px |
+| `js/media.js` | PDF → imagen base PNG (≤16 Mpx, límite iOS) + PDF original; fotos en calidad original o 2560 px (`photoQuality`) |
 | `js/hires.js` | Redibujado nítido de la zona visible desde el PDF al hacer zoom |
 | `js/markup.js` | Anotaciones (svg, coords normalizadas 0-1), selección por pulsación larga, mediciones |
 | `js/compare.js` | Comparar versiones: superposición rojo/azul/gris y cortina, nítida con zoom |
@@ -84,6 +84,11 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     `photopins.js`). «Mover» activa el modo `movephoto` del visor: tocar el nuevo punto o arrastrar esa foto;
     aviso con botón Cancelar. Las fotos ya **no** se arrastran en modo normal (evita moverlas sin querer al
     desplazar el plano); los pines de tareas sí. Solo para quien puede editar.
+18. Fotos en alta resolución: la cámara integrada usa `ImageCapture.takePhoto()` con el tamaño máximo de
+    `getPhotoCapabilities()` (sensor completo en Chrome Android); si falla, fotograma del vídeo pedido a 4096×3072.
+    Muestra los Mpx en la cámara (tras la 1.ª foto, el tamaño real). `savePhotos` guarda el archivo original sin
+    recomprimir (JPEG/PNG/WebP, con EXIF) salvo que en Ajustes › Calidad de las fotos se elija «Optimizada»
+    (2560 px). Ajuste por dispositivo en `localStorage` (`obraplan.photoQuality`), por defecto «Original».
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
@@ -108,6 +113,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 - Nombres de descarga solo en ASCII (`safeName` en `exportplan.js`): Chrome sin interfaz descarta el nombre
   si lleva tildes o «–» y guarda como «download». La fuente del PDF exportado es Helvetica estándar (WinAnsi):
   símbolos fuera de ese juego se sustituyen (→ por ->) o salen como «?».
+- Cámara simulada de Chromium (`--use-fake-device-for-media-stream`): `getPhotoCapabilities` dice 1920×1080 pero
+  `takePhoto` da 3840×2160; por eso la etiqueta de Mpx usa el mayor de ambos y luego el tamaño real.
 - pdf-lib usa nombres propios en sus enumeraciones (`TextRenderingMode.Outline`, no `Stroke`).
 - Pruebas de pellizco en Playwright: usar CDP `Input.dispatchTouchEvent` con varios `touchPoints`
   (genera eventos pointer reales; los `PointerEvent` sintéticos fallan en `setPointerCapture`).

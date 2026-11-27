@@ -231,17 +231,43 @@ export async function demoFloorPlan(variant = 0) {
   return { blob, thumb, width: W, height: H };
 }
 
+// Calidad de las fotos de obra (ajuste de este dispositivo):
+// 'original' = la foto tal cual sale de la cámara (máxima resolución); 'optimized' = máx. 2560 px (menos datos).
+const PHOTO_QUALITY_KEY = 'obraplan.photoQuality';
+export function photoQuality() {
+  try {
+    return localStorage.getItem(PHOTO_QUALITY_KEY) === 'optimized' ? 'optimized' : 'original';
+  } catch {
+    return 'original';
+  }
+}
+export function setPhotoQuality(q) {
+  try {
+    localStorage.setItem(PHOTO_QUALITY_KEY, q === 'optimized' ? 'optimized' : 'original');
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
 /**
- * Prepara y guarda fotos de obra: se reducen a un máximo de 2560 px (suficiente para ver detalles,
- * y ligeras para sincronizar por datos móviles). Devuelve los identificadores guardados.
+ * Prepara y guarda fotos de obra. En calidad original se guarda el archivo tal cual (sin reducir ni
+ * recomprimir, con sus datos EXIF); los formatos que no todos los navegadores muestran se pasan a JPEG
+ * a resolución completa. En calidad optimizada se reducen a 2560 px. Devuelve los identificadores guardados.
  */
 export async function savePhotos(projectId, files, onProgress = () => {}) {
   const ids = [];
+  const original = photoQuality() === 'original';
   for (const [i, f] of files.entries()) {
     onProgress(i + 1, files.length);
+    const name = f.name || `foto-${Date.now()}.jpg`;
     try {
-      const { blob } = await resizeImage(f, 2560, 'image/jpeg', 0.86);
-      ids.push(await saveFile(projectId, blob, f.name || `foto-${Date.now()}.jpg`));
+      if (original && /^image\/(jpeg|png|webp)$/.test(f.type)) {
+        await loadImage(f); // comprueba que el navegador puede mostrarla
+        ids.push(await saveFile(projectId, f, name));
+        continue;
+      }
+      const { blob } = original ? await resizeImage(f, 8192, 'image/jpeg', 0.92) : await resizeImage(f, 2560, 'image/jpeg', 0.86);
+      ids.push(await saveFile(projectId, blob, name));
     } catch {
       /* formato no legible por el navegador (p. ej. HEIC en algunos equipos) */
     }

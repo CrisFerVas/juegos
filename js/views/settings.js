@@ -1,6 +1,7 @@
 import { db, exportProject, deleteProject } from '../db.js';
 import { esc, toast, confirmDialog, download, userName, setUserName } from '../ui.js';
 import { session, isAdmin, logout } from '../sync.js';
+import { photoQuality, setPhotoQuality } from '../media.js';
 
 export function renderSettings(view, ctx) {
   ctx.onTaskChanged = null;
@@ -51,6 +52,16 @@ export function renderSettings(view, ctx) {
         <button class="btn btn-primary">Guardar</button>
       </form>`}
 
+      <section class="card" id="photo-quality">
+        <h3>Calidad de las fotos</h3>
+        <p class="muted small">Se aplica a las fotos que hagas o subas desde este dispositivo.</p>
+        <div class="seg-choice" role="group" aria-label="Calidad de las fotos">
+          <button type="button" data-q="original" class="${photoQuality() === 'original' ? 'on' : ''}">Original</button>
+          <button type="button" data-q="optimized" class="${photoQuality() === 'optimized' ? 'on' : ''}">Optimizada</button>
+        </div>
+        <p class="muted small" id="photo-quality-help"></p>
+      </section>
+
       <section class="card">
         <h3>Copia de seguridad</h3>
         <p class="muted small">Los datos se guardan en este navegador. Exporta el proyecto (incluye planos y fotos) para guardarlo o compartirlo; se importa desde la pantalla de proyectos.</p>
@@ -88,6 +99,22 @@ export function renderSettings(view, ctx) {
     setUserName(v);
     toast('Nombre guardado');
   });
+  const qCard = view.querySelector('#photo-quality');
+  const qHelp = () => {
+    qCard.querySelector('#photo-quality-help').textContent = photoQuality() === 'original'
+      ? 'Máxima resolución de la cámara del dispositivo, sin recomprimir (≈ 3-10 MB por foto). Ideal para ver detalles.'
+      : 'Fotos reducidas a 2560 px (≈ 0,5-1 MB por foto). Sincronizan más rápido con datos móviles.';
+  };
+  qHelp();
+  qCard.querySelectorAll('[data-q]').forEach((b) =>
+    b.addEventListener('click', () => {
+      setPhotoQuality(b.dataset.q);
+      qCard.querySelectorAll('[data-q]').forEach((x) => x.classList.toggle('on', x === b));
+      qHelp();
+      toast(b.dataset.q === 'original' ? 'Fotos en calidad original' : 'Fotos optimizadas');
+    })
+  );
+
   view.querySelector('#export').addEventListener('click', async (e) => {
     e.target.disabled = true;
     e.target.textContent = 'Exportando...';

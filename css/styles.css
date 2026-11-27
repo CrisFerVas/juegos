@@ -775,3 +775,4 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
 .photo-pin.pin-moving { animation: pulse 1s infinite; background: var(--accent); z-index: 3; }
 .viewer-hint.hint-action { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 16px; }
 .viewer-hint.hint-action .btn { flex: none; }
+.camera-shutter.busy span { transform: scale(.7); opacity: .6; }
