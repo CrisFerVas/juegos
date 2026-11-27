@@ -202,6 +202,8 @@ async function route() {
 
 // ---------- Arranque ----------
 async function boot() {
+  // Pide al navegador que no borre los datos locales (IndexedDB) cuando le falte espacio.
+  navigator.storage?.persist?.().catch(() => {});
   const mode = await initSession();
   if (mode === 'login') return showLogin();
   onSync((type, detail) => {
