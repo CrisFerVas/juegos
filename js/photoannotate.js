@@ -9,6 +9,7 @@ export const photoKey = (fileId) => `photo:${fileId}`;
 const PHOTO_TOOLS = ['pen', 'marker', 'line', 'arrow', 'rect', 'ellipse', 'cloud', 'text', 'eraser'];
 const LONG_PRESS_MS = 450;
 const TAP_TOLERANCE = 6;
+const MAX_ZOOM = 8;
 
 /**
  * Muestra una foto con sus anotaciones, ajustada al contenedor.
@@ -39,14 +40,34 @@ export async function mountAnnotatedPhoto(container, ctx, fileId) {
   stage.appendChild(img);
   container.appendChild(stage);
 
+  // Escala total = escala de ajuste × zoom. (lx, ly) = esquina superior izquierda de la foto en el contenedor.
+  let base = 1, zoom = 1, lx = 0, ly = 0, cw = 0, ch = 0;
   let scale = 1;
   const layer = createMarkupLayer({ ctx, sheet: { id: photoKey(fileId), width: W, height: H }, stage, getScale: () => scale });
+  let onZoom = () => {};
+  const clamp = () => {
+    const sw = W * scale, sh = H * scale;
+    lx = sw <= cw ? (cw - sw) / 2 : Math.min(0, Math.max(cw - sw, lx));
+    ly = sh <= ch ? (ch - sh) / 2 : Math.min(0, Math.max(ch - sh, ly));
+  };
+  const apply = () => {
+    clamp();
+    stage.style.transform = `translate(${lx}px, ${ly}px) scale(${scale})`;
+    layer.refreshSelection();
+    onZoom(zoom);
+  };
   const fit = () => {
     const r = container.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    scale = Math.min(r.width / W, r.height / H);
-    stage.style.transform = `translate(${(r.width - W * scale) / 2}px, ${(r.height - H * scale) / 2}px) scale(${scale})`;
-    layer.refreshSelection();
+    // Mantiene el centro visible al cambiar el tamaño (p. ej. al girar el móvil)
+    const cx = cw ? (cw / 2 - lx) / scale : W / 2, cy = ch ? (ch / 2 - ly) / scale : H / 2;
+    cw = r.width;
+    ch = r.height;
+    base = Math.min(cw / W, ch / H);
+    scale = base * zoom;
+    lx = cw / 2 - cx * scale;
+    ly = ch / 2 - cy * scale;
+    apply();
   };
   fit();
   await layer.load();
@@ -58,6 +79,30 @@ export async function mountAnnotatedPhoto(container, ctx, fileId) {
       const r = stage.getBoundingClientRect();
       return { x: (clientX - r.left) / r.width, y: (clientY - r.top) / r.height };
     },
+    /** Zoom (1 = foto entera) alrededor de un punto de la pantalla; por defecto, el centro. */
+    zoomAt(factor, clientX, clientY) {
+      const r = container.getBoundingClientRect();
+      const cx = clientX == null ? cw / 2 : clientX - r.left, cy = clientY == null ? ch / 2 : clientY - r.top;
+      const nz = Math.min(MAX_ZOOM, Math.max(1, zoom * factor));
+      const k = nz / zoom;
+      zoom = nz;
+      scale = base * zoom;
+      lx = cx - (cx - lx) * k;
+      ly = cy - (cy - ly) * k;
+      apply();
+    },
+    panBy(dx, dy) {
+      lx += dx;
+      ly += dy;
+      apply();
+    },
+    resetZoom() {
+      zoom = 1;
+      scale = base;
+      apply();
+    },
+    get zoom() { return zoom; },
+    onZoom(fn) { onZoom = fn; fn(zoom); },
     destroy: () => ro.disconnect(),
   };
 }
@@ -96,7 +141,12 @@ export function openPhotoAnnotator(ctx, fileId) {
     el.innerHTML = `
       <header class="pe-head">
         <strong>Anotar foto</strong>
-        <span class="pe-hint muted small" id="pe-hint">Dibuja con el dedo · mantén pulsada una anotación para moverla</span>
+        <span class="pe-hint muted small" id="pe-hint">Dibuja con el dedo · dos dedos para hacer zoom y desplazarte</span>
+        <div class="pe-zoom" role="group" aria-label="Zoom">
+          <button type="button" class="btn btn-sm" id="pe-zout" title="Alejar" aria-label="Alejar">−</button>
+          <button type="button" class="btn btn-sm pe-zval" id="pe-zfit" title="Ver la foto entera" aria-label="Ver la foto entera">100%</button>
+          <button type="button" class="btn btn-sm" id="pe-zin" title="Acercar" aria-label="Acercar">+</button>
+        </div>
         <button type="button" class="btn btn-primary btn-sm" id="pe-done">Listo</button>
       </header>
       <div class="pe-area" id="pe-area"></div>
@@ -148,7 +198,7 @@ export function openPhotoAnnotator(ctx, fileId) {
       selBar.classList.toggle('hidden', !sel);
       if (sel) selBar.querySelectorAll('[data-sel-color]').forEach((b) => b.classList.toggle('active', b.dataset.selColor === sel.color));
       const hints = { text: 'Toca donde quieres escribir', eraser: 'Toca o arrastra sobre una anotación para borrarla' };
-      el.querySelector('#pe-hint').textContent = sel ? 'Arrastra para mover · usa los círculos para cambiar el tamaño' : hints[s.tool] || 'Dibuja con el dedo · mantén pulsada una anotación para moverla';
+      el.querySelector('#pe-hint').textContent = sel ? 'Arrastra para mover · usa los círculos para cambiar el tamaño' : hints[s.tool] || 'Dibuja con el dedo · dos dedos para hacer zoom y desplazarte · mantén pulsada una anotación para moverla';
     };
     layer.onSelectionChange(sync);
     toolsBar.querySelectorAll('[data-tool]').forEach((b) => onTap(b, () => { layer.setTool(b.dataset.tool); sync(); }));
@@ -158,6 +208,20 @@ export function openPhotoAnnotator(ctx, fileId) {
     selBar.querySelectorAll('[data-sel-color]').forEach((b) => onTap(b, async () => { await layer.recolorSelected(b.dataset.selColor); sync(); }));
     onTap(el.querySelector('#pe-del'), async () => { await layer.deleteSelected(); sync(); });
     onTap(el.querySelector('#pe-seldone'), () => { layer.deselect(); sync(); });
+    const zval = el.querySelector('#pe-zfit');
+    view.onZoom((z) => {
+      zval.textContent = `${Math.round(z * 100)}%`;
+      el.querySelector('#pe-zout').disabled = z <= 1;
+      el.querySelector('#pe-zin').disabled = z >= MAX_ZOOM;
+    });
+    onTap(el.querySelector('#pe-zin'), () => view.zoomAt(1.5));
+    onTap(el.querySelector('#pe-zout'), () => view.zoomAt(1 / 1.5));
+    onTap(zval, () => view.resetZoom());
+    area.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      view.zoomAt(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.002)), e.clientX, e.clientY);
+    }, { passive: false });
+
     onTap(el.querySelector('#pe-done'), () => {
       layer.deselect();
       view.destroy();
@@ -169,15 +233,26 @@ export function openPhotoAnnotator(ctx, fileId) {
     });
 
     // ---------- Gestos ----------
+    // Un dedo: dibujar / editar. Dos dedos: zoom y desplazamiento (cancela el trazo en curso).
+    const pts = new Map();
     let g = null;
     let timer = null;
-    area.addEventListener('pointerdown', (e) => {
-      if (g) { // segundo dedo: se cancela el trazo en curso
-        if (g.type === 'draw') layer.cancel();
-        g = { type: 'ignore' };
+    const pinchInfo = () => {
+      const [a, b] = [...pts.values()];
+      return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    };
+    area.addEventListener('pointerdown', async (e) => {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      area.setPointerCapture(e.pointerId);
+      if (pts.size === 2) {
+        clearTimeout(timer);
+        if (g?.type === 'draw') layer.cancel();
+        else if (g?.type === 'edit') await layer.endEdit();
+        g = { type: 'pinch', ...pinchInfo() };
+        sync();
         return;
       }
-      area.setPointerCapture(e.pointerId);
+      if (g || pts.size > 2) return; // tercer dedo, o restos de un pellizco
       const p = view.toPhoto(e.clientX, e.clientY);
       const start = { x: e.clientX, y: e.clientY };
       if (layer.selected()) {
@@ -210,7 +285,17 @@ export function openPhotoAnnotator(ctx, fileId) {
       }, LONG_PRESS_MS);
     });
     area.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (!g || g.type === 'ignore') return;
+      if (g.type === 'pinch') {
+        if (pts.size < 2) return;
+        const n = pinchInfo();
+        view.panBy(n.mx - g.mx, n.my - g.my);
+        view.zoomAt(n.d / g.d, n.mx, n.my);
+        Object.assign(g, n);
+        return;
+      }
       if (!g.moved && Math.hypot(e.clientX - g.start.x, e.clientY - g.start.y) > TAP_TOLERANCE) {
         g.moved = true;
         clearTimeout(timer);
@@ -221,8 +306,14 @@ export function openPhotoAnnotator(ctx, fileId) {
       else if (g.type === 'erase') layer.eraseAt(p).then(sync);
     });
     const end = async (e) => {
+      if (!pts.delete(e.pointerId)) return;
       clearTimeout(timer);
       const cur = g;
+      if (cur && (cur.type === 'pinch' || cur.type === 'ignore')) {
+        // Tras un pellizco no se dibuja con el dedo que queda hasta levantarlos todos
+        g = pts.size ? { type: 'ignore' } : null;
+        return;
+      }
       g = null;
       if (!cur) return;
       if (cur.type === 'edit') await layer.endEdit();

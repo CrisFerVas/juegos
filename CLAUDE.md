@@ -65,11 +65,13 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 11. Anotar fotos (mismas herramientas sin mediciones).
 12. Partes e inspecciones: parte diario, calidad, seguridad, plantillas propias, firma, cierre, PDF,
     tarea desde no conformidad.
+13. Zoom en el editor de fotos: pellizco con dos dedos (zoom + paneo, cancela el trazo en curso), rueda del
+    ratón y botones −/100%/+ (hasta 800 %). `mountAnnotatedPhoto` expone `zoomAt/panBy/resetZoom/onZoom`.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
 - Avisos (email/push) y recuperación de contraseña (requiere servicio de correo y app publicada).
-- Zoom dentro del editor de fotos.
+- Zoom también en los visores de fotos (de solo lectura: plano, tarea, parte).
 - Publicar el servidor (Render/Railway/Fly.io o VPS con disco persistente) cuando el usuario quiera modo equipo real.
 
 ## Preferencias del usuario
@@ -86,5 +88,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 - pdf.js 3.11.174 desde cdnjs, worker creado desde un blob. En el contenedor de pruebas cdnjs está bloqueado:
   las pruebas sirven pdf.js local (npm `pdfjs-dist@3.11.174`) interceptando la URL.
 - En la vista previa de Claude: sin cámara, sin descargas, sin `window.open`/imprimir.
+- Pruebas de pellizco en Playwright: usar CDP `Input.dispatchTouchEvent` con varios `touchPoints`
+  (genera eventos pointer reales; los `PointerEvent` sintéticos fallan en `setPointerCapture`).
 - Las pruebas end-to-end (Playwright) se escribieron en el directorio temporal de la sesión, **no están en el repo**;
   convendría añadir una carpeta `tests/` con las principales si se retoma el proyecto.
