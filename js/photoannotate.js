@@ -215,19 +215,20 @@ const toolIcon = (id) => MARKUP_TOOLS.find((t) => t.id === id);
 function onTap(btn, fn) {
   if (!btn) return;
   let downOnIt = false;
-  let last = -Infinity;
-  const run = (e) => {
-    if (btn.disabled || performance.now() - last < 500) return;
-    last = performance.now();
-    fn(e);
-  };
+  let lastUp = -Infinity; // el clic que sigue a un toque ya atendido se ignora (no los toques siguientes)
   btn.addEventListener('pointerdown', () => (downOnIt = true));
   btn.addEventListener('pointerup', (e) => {
-    if (downOnIt) run(e);
+    if (downOnIt && !btn.disabled) {
+      lastUp = performance.now();
+      fn(e);
+    }
     downOnIt = false;
   });
   btn.addEventListener('pointerleave', () => (downOnIt = false));
-  btn.addEventListener('click', run);
+  btn.addEventListener('click', (e) => {
+    if (btn.disabled || performance.now() - lastUp < 700) return;
+    fn(e);
+  });
 }
 
 /** Editor de anotaciones a pantalla completa para una foto. Resuelve al cerrarse. */
@@ -259,6 +260,7 @@ export function openPhotoAnnotator(ctx, fileId) {
         <div class="markup-group">
           ${MARKUP_WIDTHS.map((w) => `<button class="markup-width" data-width="${w.w}" title="${w.n}" aria-label="Grosor ${w.n}"><span style="height:${w.w + 1}px"></span></button>`).join('')}
           <button class="markup-tool" id="pe-undo" title="Deshacer" aria-label="Deshacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+          <button class="markup-tool" id="pe-redo" title="Rehacer" aria-label="Rehacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
         </div>
       </div>
       <div class="markup-bar pe-bar hidden" id="pe-sel" role="toolbar" aria-label="Anotación seleccionada">
@@ -292,6 +294,7 @@ export function openPhotoAnnotator(ctx, fileId) {
       toolsBar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === s.color));
       toolsBar.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', Number(b.dataset.width) === s.width));
       el.querySelector('#pe-undo').disabled = !layer.canUndo();
+      el.querySelector('#pe-redo').disabled = !layer.canRedo();
       const sel = layer.selected();
       toolsBar.classList.toggle('hidden', !!sel);
       selBar.classList.toggle('hidden', !sel);
@@ -304,6 +307,7 @@ export function openPhotoAnnotator(ctx, fileId) {
     toolsBar.querySelectorAll('[data-color]').forEach((b) => onTap(b, () => { layer.setColor(b.dataset.color); sync(); }));
     toolsBar.querySelectorAll('[data-width]').forEach((b) => onTap(b, () => { layer.setWidth(Number(b.dataset.width)); sync(); }));
     onTap(el.querySelector('#pe-undo'), async () => { await layer.undo(); sync(); });
+    onTap(el.querySelector('#pe-redo'), async () => { await layer.redo(); sync(); });
     selBar.querySelectorAll('[data-sel-color]').forEach((b) => onTap(b, async () => { await layer.recolorSelected(b.dataset.selColor); sync(); }));
     onTap(el.querySelector('#pe-del'), async () => { await layer.deleteSelected(); sync(); });
     onTap(el.querySelector('#pe-seldone'), () => { layer.deselect(); sync(); });

@@ -82,6 +82,12 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
   let items = [];
   let draft = null;
   const undoStack = [];
+  const redoStack = [];
+  /** Nueva acción: se puede deshacer y ya no se puede rehacer lo deshecho antes. */
+  const record = (entry) => {
+    undoStack.push(entry);
+    redoStack.length = 0;
+  };
   const settings = { tool: 'pen', color: MARKUP_COLORS[0].c, width: MARKUP_WIDTHS[1].w };
   try {
     Object.assign(settings, JSON.parse(localStorage.getItem('obraplan.markup') || '{}'));
@@ -287,7 +293,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     }
     if (d.type === 'calibrate') return onCalibrate(d.points);
     const doc = await persist(d);
-    undoStack.push({ op: 'add', doc });
+    record({ op: 'add', doc });
   }
   function cancel() {
     draft = null;
@@ -316,7 +322,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     if (!d || d.points.length < (d.type === 'area' ? 3 : 2)) return 0;
     delete d.draft;
     const doc = await persist(d);
-    undoStack.push({ op: 'add', doc });
+    record({ op: 'add', doc });
     return 0;
   }
 
@@ -330,7 +336,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
         const text = v.text.trim();
         if (!text) return false;
         const doc = await persist({ type: 'text', color: settings.color, width: 0, fontSize: round(fontSize), text, points: [[p.x, p.y]] });
-        undoStack.push({ op: 'add', doc });
+        record({ op: 'add', doc });
       },
     });
   }
@@ -380,36 +386,57 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
       if (sel?.id === doc.id) deselect();
       render();
       await db.del('markups', doc.id);
-      undoStack.push({ op: 'del', doc });
+      record({ op: 'del', doc });
       return true;
     }
     return false;
   }
 
+  /** Aplica una entrada del historial y devuelve la contraria (para rehacer o volver a deshacer). */
+  async function applyHistory(entry) {
+    if (entry.op === 'edit') {
+      const item = items.find((m) => m.id === entry.before.id);
+      if (!item) return null;
+      const after = structuredClone(item);
+      Object.assign(item, structuredClone(entry.before));
+      await db.put('markups', item);
+      render();
+      return { op: 'edit', before: after };
+    }
+    if (entry.op === 'add') {
+      // Quitar una anotación añadida
+      const doc = items.find((m) => m.id === entry.doc.id) || entry.doc;
+      if (sel?.id === doc.id) deselect();
+      items = items.filter((m) => m.id !== doc.id);
+      render();
+      await db.del('markups', doc.id);
+      return { op: 'del', doc };
+    }
+    // Volver a poner una anotación borrada. Un documento borrado no se puede recuperar con el mismo
+    // identificador: se vuelve a crear y el historial pasa a referirse al nuevo.
+    const { id, _rev, ...rest } = entry.doc;
+    const restored = await persist(rest);
+    for (const u of [...undoStack, ...redoStack]) {
+      if (u.op === 'edit' && u.before.id === id) u.before.id = restored.id;
+      else if (u.op !== 'edit' && u.doc.id === id) u.doc = { ...u.doc, id: restored.id };
+    }
+    return { op: 'add', doc: restored };
+  }
+
   async function undo() {
     const last = undoStack.pop();
     if (!last) return false;
-    if (last.op === 'edit') {
-      const item = items.find((m) => m.id === last.before.id);
-      if (item) {
-        Object.assign(item, structuredClone(last.before));
-        await db.put('markups', item);
-        render();
-      }
-      return true;
-    }
-    if (last.op === 'add') {
-      if (sel?.id === last.doc.id) deselect();
-      items = items.filter((m) => m.id !== last.doc.id);
-      render();
-      await db.del('markups', last.doc.id);
-    } else {
-      // Un documento borrado no se puede recuperar con el mismo identificador: se vuelve a crear.
-      const { id, _rev, ...rest } = last.doc;
-      const restored = await persist(rest);
-      // Los cambios anteriores de esa anotación pasan a referirse a la restaurada
-      for (const u of undoStack) if (u.op === 'edit' && u.before.id === id) u.before.id = restored.id;
-    }
+    const inverse = await applyHistory(last);
+    if (inverse) redoStack.push(inverse);
+    return true;
+  }
+
+  /** Rehacer: vuelve a aplicar lo último que se deshizo. */
+  async function redo() {
+    const next = redoStack.pop();
+    if (!next) return false;
+    const inverse = await applyHistory(next);
+    if (inverse) undoStack.push(inverse);
     return true;
   }
 
@@ -560,7 +587,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     sel.points = sel.points.map(([qx, qy]) => [round(qx), round(qy)]);
     if (sel.fontSize) sel.fontSize = round(sel.fontSize);
     await db.put('markups', sel);
-    undoStack.push({ op: 'edit', before: e.orig });
+    record({ op: 'edit', before: e.orig });
     render();
   }
 
@@ -569,7 +596,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     const before = structuredClone(sel);
     sel.color = color;
     render(); // se ve al instante; después se guarda
-    undoStack.push({ op: 'edit', before });
+    record({ op: 'edit', before });
     await db.put('markups', sel);
   }
 
@@ -580,7 +607,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     items = items.filter((m) => m.id !== doc.id);
     render();
     await db.del('markups', doc.id);
-    undoStack.push({ op: 'del', doc });
+    record({ op: 'del', doc });
   }
 
   return {
@@ -595,8 +622,9 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
     setWidth: (w) => { settings.width = w; saveSettings(); },
     setVisible: (v) => svg.classList.toggle('hidden', !v),
     canUndo: () => undoStack.length > 0,
+    canRedo: () => redoStack.length > 0,
     count: () => items.length,
-    load, start, move, end, cancel, addText, eraseAt, undo, addVertex, finishMulti, multiPending, render,
+    load, start, move, end, cancel, addText, eraseAt, undo, redo, addVertex, finishMulti, multiPending, render,
     lengthOf, areaOf,
   };
 }

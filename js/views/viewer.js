@@ -117,6 +117,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
             </div>
             <div class="markup-group">
               <button class="markup-tool" id="markup-undo" title="Deshacer" aria-label="Deshacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+              <button class="markup-tool" id="markup-redo" title="Rehacer" aria-label="Rehacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
               <button class="btn btn-primary btn-sm" id="markup-done">Listo</button>
             </div>
           </div>
@@ -330,6 +331,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     markupBar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === s.color));
     markupBar.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', Number(b.dataset.width) === s.width));
     view.querySelector('#markup-undo').disabled = !markup.canUndo();
+    view.querySelector('#markup-redo').disabled = !markup.canRedo();
     if (markup.selected()) return;
     canvas.dataset.tool = s.tool;
     const pending = markup.multiPending();
@@ -423,6 +425,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   markupBar.querySelectorAll('[data-color]').forEach((b) => (b.onclick = () => { markup.setColor(b.dataset.color); syncMarkupBar(); }));
   markupBar.querySelectorAll('[data-width]').forEach((b) => (b.onclick = () => { markup.setWidth(Number(b.dataset.width)); syncMarkupBar(); }));
   view.querySelector('#markup-undo').onclick = async () => { await markup.undo(); syncMarkupBar(); };
+  view.querySelector('#markup-redo').onclick = async () => { await markup.redo(); syncMarkupBar(); };
   view.querySelector('#markup-done').onclick = async () => {
     await markup.finishMulti();
     markup.deselect();

@@ -132,6 +132,11 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     se para la actual y se reanuda), y se guarda en `localStorage` (`obraplan.cameraCaps`). La elegida se recuerda
     (`obraplan.cameraId`, `deviceId` exacto; si ya no existe, vuelve a la trasera). Nombres por `facingMode` o
     por la etiqueta del dispositivo («facing back/front» en Android). Android puede no exponer todas las cámaras.
+26. Rehacer (↷) junto a Deshacer en las anotaciones del plano y de las fotos. `markup.js` guarda `undoStack` y
+    `redoStack`; `applyHistory` aplica una entrada y devuelve la contraria (add ↔ del, edit ↔ edit). Una acción
+    nueva (`record`) vacía `redoStack`. Al volver a crear una anotación borrada cambia su id: se actualizan las
+    referencias en ambas pilas. `onTap` (editor de fotos) ya no ignora toques seguidos: solo descarta el `click`
+    que sigue al `pointerup` del mismo toque (antes, dos toques rápidos en Deshacer contaban como uno).
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
