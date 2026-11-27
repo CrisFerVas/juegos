@@ -24,7 +24,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
   - *Local*: sin servidor (GitHub Pages, vista previa). Datos solo en IndexedDB del navegador.
   - *Equipo*: si responde `api/health`, pide login; sincroniza con el servidor.
 - **Servidor** (`server/`): Node ≥ 22.5, sin dependencias, SQLite integrado (`node:sqlite`).
-  `npm start` (PORT, HOST, DATA_DIR=./data), `npm test` (10 tests de la API). `Dockerfile` incluido (no probado).
+  `npm start` (PORT, HOST, DATA_DIR=./data), `npm test` (17 tests de la API: `api.test.js`, `account.test.js`),
+  `npm run admin -- reset-password <email>` / `users` (`server/admin.js`). `Dockerfile` incluido (no probado).
 - **Datos** (`js/db.js`, IndexedDB versión 5). Almacenes sincronizados:
   `projects, members, sheets, tasks, files, markups, forms, templates, folders`. Internos: `outbox`, `meta`.
   Al añadir un almacén: subir `VERSION` en `js/db.js`, añadirlo a `STORES`, a `SYNCED_STORES`
@@ -53,6 +54,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/reminders-core.js` | Reglas y horario de avisos de tareas; script clásico (`self.ObraReminders`) usado por la app y por `sw.js` (`importScripts`) |
 | `js/reminders.js` | Avisos en la app: permiso, ajustes, comprobación cada minuto, sincronización periódica |
 | `js/loupe.js` | Lupa al dibujar con el dedo (imagen + lienzo nítido del PDF + anotaciones en vivo con `<use>`) |
+| `js/views/auth.js`, `js/views/account.js` | Acceso (login/registro/recuperar, invitación) y «Mi cuenta» (`#/account`) |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
 
 ## Funcionalidades hechas (en orden)
@@ -162,13 +164,27 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     (un recorte que afecta a varias anotaciones se deshace de una vez); `applyHistory` de `edit` ahora quita
     las propiedades que no estaban antes (p. ej. `clip`).
 
+30. Cuentas y acceso (modo equipo). **Mi cuenta** (`#/account`, avatar de la barra o Ajustes › Tu cuenta): nombre
+    (`PATCH /api/me`), email y contraseña (piden la contraseña; cambiarla cierra las demás sesiones), dispositivos con
+    sesión abierta (`sessions.agent` = User-Agent, `describeAgent` → «Chrome · Android»; id público = sha256(token)[0:16],
+    nunca se devuelve el token) con cierre individual o de todos los demás, eliminar cuenta (bloqueado si es el único
+    admin de un proyecto con más personas; los proyectos donde está solo se borran con `wipeProject`).
+    **Recuperar contraseña sin correo**: 8 códigos de recuperación `ABCD-EFGH` (hash sha256, un uso, se regeneran) o código
+    de restablecimiento `npm run admin -- reset-password` (tabla `reset_codes`, 24 h); `POST /api/recover` cierra todas
+    las sesiones. Bloqueo por cuenta: 8 fallos en 15 min (en memoria), además del límite por IP (`ipLimit`, 30/10 min).
+    **Enlaces de invitación** (tabla `invite_links`, rol + 1/7/30 días, contador de usos): Equipo › Acceso › «Crear enlace»
+    (comparte con `navigator.share` o copia). `#/invite/<token>`: sin sesión muestra el proyecto y registra/entra y se une;
+    con sesión acepta y abre el proyecto; en modo local avisa de que necesita el servidor. Un enlace nunca baja un rol.
+    Login: ver/ocultar contraseña (`passwordField`/`bindPasswordToggles` en `auth.js`), conserva el email al cambiar de modo.
+
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de
   esa zona, relleno desde el trazo hasta las líneas, cerrar huecos, ignorar textos) y recortar a esa forma.
   El usuario compartió un plano real para probarlo (`1.- ANDÉN ESTACIÓN 02`, A0 girado 270°); **no está en el
   repo** (pedírselo de nuevo si hace falta).
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
-- Avisos fiables con la app cerrada: Web Push desde el servidor (VAPID) cuando se publique; email; recuperación de contraseña.
+- Avisos fiables con la app cerrada: Web Push desde el servidor (VAPID) cuando se publique; envío de email (SMTP) para
+  recuperar la contraseña e invitaciones; inicio de sesión con Google; verificación del email.
 - Publicar el servidor (Render/Railway/Fly.io o VPS con disco persistente) cuando el usuario quiera modo equipo real.
 
 ## Preferencias del usuario

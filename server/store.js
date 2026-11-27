@@ -47,18 +47,72 @@ const SCHEMA = `
     PRIMARY KEY (store, id)
   );
   CREATE INDEX IF NOT EXISTS docs_project_seq ON docs (project_id, seq);
+  CREATE TABLE IF NOT EXISTS recovery_codes (
+    user_id TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, hash)
+  );
+  CREATE TABLE IF NOT EXISTS reset_codes (
+    hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS invite_links (
+    token TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_by TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    uses INTEGER NOT NULL DEFAULT 0
+  );
 `;
+
+/** Columnas añadidas después de la primera versión (las bases de datos antiguas se amplían al abrir). */
+const MIGRATIONS = [['sessions', 'agent', 'TEXT']];
 
 export function openStore(file) {
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  for (const [table, col, type] of MIGRATIONS) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+  }
   let seq = db.prepare('SELECT COALESCE(MAX(seq), 0) AS s FROM docs').get().s;
 
   const q = {
     userByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
     userById: db.prepare('SELECT id, email, name, created_at FROM users WHERE id = ?'),
     insertUser: db.prepare('INSERT INTO users (id, email, name, pass, created_at) VALUES (?, ?, ?, ?, ?)'),
-    insertSession: db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen) VALUES (?, ?, ?, ?)'),
+    updateUserName: db.prepare('UPDATE users SET name = ? WHERE id = ?'),
+    updateUserEmail: db.prepare('UPDATE users SET email = ? WHERE id = ?'),
+    updateUserPass: db.prepare('UPDATE users SET pass = ? WHERE id = ?'),
+    userPass: db.prepare('SELECT pass FROM users WHERE id = ?'),
+    deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
+    insertSession: db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen, agent) VALUES (?, ?, ?, ?, ?)'),
+    sessionsOf: db.prepare('SELECT token, agent, created_at, last_seen FROM sessions WHERE user_id = ? ORDER BY last_seen DESC'),
+    deleteSessionsOf: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+    deleteOtherSessions: db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?'),
+    recoveryCount: db.prepare('SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ?'),
+    recoveryCode: db.prepare('SELECT 1 FROM recovery_codes WHERE user_id = ? AND hash = ?'),
+    insertRecovery: db.prepare('INSERT INTO recovery_codes (user_id, hash, created_at) VALUES (?, ?, ?)'),
+    deleteRecovery: db.prepare('DELETE FROM recovery_codes WHERE user_id = ? AND hash = ?'),
+    deleteRecoveryOf: db.prepare('DELETE FROM recovery_codes WHERE user_id = ?'),
+    resetCode: db.prepare('SELECT * FROM reset_codes WHERE hash = ?'),
+    insertResetCode: db.prepare('INSERT INTO reset_codes (hash, user_id, expires_at) VALUES (?, ?, ?)'),
+    deleteResetCode: db.prepare('DELETE FROM reset_codes WHERE hash = ?'),
+    deleteResetCodesOf: db.prepare('DELETE FROM reset_codes WHERE user_id = ?'),
+    deleteOldResetCodes: db.prepare('DELETE FROM reset_codes WHERE expires_at < ?'),
+    inviteLink: db.prepare('SELECT * FROM invite_links WHERE token = ?'),
+    inviteLinksOf: db.prepare('SELECT token, role, created_at, expires_at, uses FROM invite_links WHERE project_id = ? AND expires_at > ? ORDER BY created_at'),
+    insertInviteLink: db.prepare('INSERT INTO invite_links (token, project_id, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    useInviteLink: db.prepare('UPDATE invite_links SET uses = uses + 1 WHERE token = ?'),
+    deleteInviteLink: db.prepare('DELETE FROM invite_links WHERE project_id = ? AND token = ?'),
+    deleteProjectInviteLinks: db.prepare('DELETE FROM invite_links WHERE project_id = ?'),
+    deleteOldInviteLinks: db.prepare('DELETE FROM invite_links WHERE expires_at < ?'),
+    membershipsOf: db.prepare('SELECT project_id, role FROM memberships WHERE user_id = ?'),
+    memberCount: db.prepare('SELECT COUNT(*) AS n FROM memberships WHERE project_id = ?'),
     session: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),

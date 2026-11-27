@@ -31,7 +31,7 @@ Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
 | **Informes** | Exportación a CSV (compatible con Excel) e informe imprimible / PDF con fotos. |
 | **Equipo** | Personas con rol, empresa, contacto y color; recuento de tareas abiertas por persona. |
 | **Ajustes** | Datos del proyecto, categorías personalizadas, nombre del usuario, copia de seguridad completa (.json con planos y fotos) y borrado del proyecto. |
-| **Cuentas y accesos** | Registro con email y contraseña; acceso a cada proyecto como **Administrador**, **Miembro** o **Seguidor** (solo lectura). Invitación por email a personas que aún no tienen cuenta. |
+| **Cuentas y accesos** | Registro con email y contraseña; acceso a cada proyecto como **Administrador**, **Miembro** o **Seguidor** (solo lectura). Invitación por email o con **enlace de invitación** (para WhatsApp/correo, con rol y caducidad). **Mi cuenta**: cambiar nombre, email y contraseña, ver los dispositivos con sesión abierta y cerrarlos, códigos de recuperación de un solo uso y eliminar la cuenta. «¿Olvidaste tu contraseña?» con un código de recuperación o uno que genere el administrador del servidor. Bloqueo temporal tras 8 intentos fallidos. |
 | **Sincronización** | Local primero: todo se guarda en el dispositivo y se sincroniza en segundo plano (cada 15 s, al volver la conexión y al editar). Indicador de estado y cambios pendientes. Los comentarios simultáneos se fusionan y los números de tarea duplicados se renumeran. |
 | **PWA** | Instalable en el móvil como app y utilizable sin conexión. |
 
@@ -48,6 +48,14 @@ npm test             # pruebas de la API
 
 Variables de entorno: `PORT` (3000), `HOST` (0.0.0.0) y `DATA_DIR` (`./data`: base de datos SQLite y archivos subidos).
 La primera persona que crea un proyecto es su administradora; desde **Equipo → Acceso a la aplicación** da acceso a las demás.
+
+Si alguien olvida la contraseña y no guardó sus códigos de recuperación, quien gestiona el servidor puede darle un código
+de restablecimiento (un solo uso, 24 h por defecto):
+
+```bash
+npm run admin -- reset-password persona@empresa.com [horas]
+npm run admin -- users          # lista de cuentas
+```
 
 Con Docker:
 

@@ -38,6 +38,33 @@ function verifyPassword(password, stored) {
   const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
   return crypto.timingSafeEqual(expected, actual);
 }
+function checkNewPassword(password) {
+  if (password.length < 8) throw new HttpError(400, 'La contraseña debe tener al menos 8 caracteres');
+  if (password.length > 200) throw new HttpError(400, 'La contraseña es demasiado larga');
+}
+
+// ---------- Códigos (recuperación, restablecimiento, invitación) ----------
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/O ni 1/I para dictarlos sin errores
+/** Código legible del tipo ABCD-EFGH (grupos de 4). */
+export function makeCode(groups = 2) {
+  const bytes = crypto.randomBytes(groups * 4);
+  const chars = [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+  return chars.match(/.{4}/g).join('-');
+}
+export const normalizeCode = (code) => String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+export const hashCode = (code) => sha256(normalizeCode(code));
+/** Identificador público de una sesión (nunca se devuelve el token). */
+const sessionId = (token) => sha256(token).slice(0, 16);
+
+/** «Chrome · Android» a partir del User-Agent, para reconocer cada dispositivo. */
+export function describeAgent(ua = '') {
+  const browser = /EdgA?\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /OPR\//.test(ua) ? 'Opera'
+    : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Chrome|CriOS/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : '';
+  const os = /Android/.test(ua) ? 'Android' : /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Windows/.test(ua) ? 'Windows'
+    : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return [browser, os].filter(Boolean).join(' · ') || 'Dispositivo desconocido';
+}
 
 // ---------- Fusión de tareas ----------
 // Los comentarios y el historial se combinan para no perder lo escrito a la vez por varias personas.
@@ -52,11 +79,14 @@ function mergeTask(winner, other) {
   return out;
 }
 
-export function createApp({ dataDir, log = () => {} }) {
+export function createApp({ dataDir, log = () => {}, ipLimit = 30 }) {
   fs.mkdirSync(path.join(dataDir, 'files'), { recursive: true });
   const store = openStore(path.join(dataDir, 'obraplan.db'));
   const { q } = store;
   const attempts = new Map(); // límite de intentos de acceso por IP
+  const failures = new Map(); // intentos fallidos por cuenta (email) → [instantes]
+  const LOCK_WINDOW = 15 * 60000;
+  const LOCK_AFTER = 8;
 
   // ---------- Utilidades HTTP ----------
   const send = (res, status, body, headers = {}) => {
@@ -95,10 +125,21 @@ export function createApp({ dataDir, log = () => {} }) {
     const ip = req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const list = (attempts.get(ip) || []).filter((t) => now - t < 10 * 60000);
-    if (list.length >= 30) throw new HttpError(429, 'Demasiados intentos. Espera unos minutos.');
+    if (list.length >= ipLimit) throw new HttpError(429, 'Demasiados intentos. Espera unos minutos.');
     list.push(now);
     attempts.set(ip, list);
   }
+  /** Bloquea temporalmente una cuenta tras varios intentos fallidos (aunque lleguen desde varias IP). */
+  function checkLocked(email) {
+    const now = Date.now();
+    const list = (failures.get(email) || []).filter((t) => now - t < LOCK_WINDOW);
+    failures.set(email, list);
+    if (list.length >= LOCK_AFTER) {
+      const mins = Math.ceil((list[0] + LOCK_WINDOW - now) / 60000);
+      throw new HttpError(429, `Demasiados intentos fallidos con esta cuenta. Prueba de nuevo dentro de ${mins} min.`);
+    }
+  }
+  const failed = (email) => failures.set(email, [...(failures.get(email) || []), Date.now()]);
 
   function authenticate(req) {
     const header = req.headers.authorization || '';
@@ -112,14 +153,57 @@ export function createApp({ dataDir, log = () => {} }) {
     return { user, token };
   }
 
-  const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name });
+  const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, createdAt: u.created_at });
   const rolesMap = (userId) => new Map(q.rolesOf.all(userId).map((r) => [r.project_id, r.role]));
   const projectsList = (userId) => q.rolesOf.all(userId).map((r) => ({ id: r.project_id, role: r.role }));
 
-  function newSession(user) {
+  function newSession(user, req) {
     const token = crypto.randomBytes(32).toString('hex');
-    q.insertSession.run(token, user.id, Date.now(), Date.now());
-    return { token, user: publicUser(user), projects: projectsList(user.id) };
+    const agent = String(req.headers['user-agent'] || '').slice(0, 300);
+    q.insertSession.run(token, user.id, Date.now(), Date.now(), agent);
+    return { token, user: publicUser({ ...user, created_at: user.created_at ?? Date.now() }), projects: projectsList(user.id) };
+  }
+
+  /** Nombre del proyecto (del documento sincronizado), para mostrar en las invitaciones. */
+  function projectName(projectId) {
+    const d = q.doc.get('projects', projectId);
+    try {
+      return (!d || d.deleted ? null : JSON.parse(d.data).name) || 'Proyecto';
+    } catch {
+      return 'Proyecto';
+    }
+  }
+
+  /** Borra un proyecto entero del servidor (datos, accesos, invitaciones y archivos). */
+  function wipeProject(projectId, userId) {
+    q.deleteProjectDocs.run(projectId);
+    q.deleteProjectMemberships.run(projectId);
+    q.deleteProjectInvitations.run(projectId);
+    q.deleteProjectInviteLinks.run(projectId);
+    q.upsertDoc.run('projects', projectId, projectId, null, Date.now(), 1, store.nextSeq(), userId);
+    removeProjectFiles(projectId);
+  }
+
+  /** Enlace de invitación válido (o error) por su token. */
+  function validInvite(token) {
+    const link = /^[A-Za-z0-9_-]{16,80}$/.test(token) ? q.inviteLink.get(token) : null;
+    if (!link || link.expires_at < Date.now() || !q.projectKnown.get(link.project_id, link.project_id) || !q.adminCount.get(link.project_id).n)
+      throw new HttpError(404, 'La invitación no existe o ha caducado. Pide un enlace nuevo.');
+    return link;
+  }
+  /** Da acceso con un enlace de invitación; si ya tenía acceso, conserva el rol más alto. */
+  function acceptInvite(link, userId) {
+    const current = q.role.get(link.project_id, userId)?.role;
+    if (!current || ROLES.indexOf(link.role) < ROLES.indexOf(current)) q.setMembership.run(link.project_id, userId, link.role, Date.now());
+    if (!current) q.useInviteLink.run(link.token);
+    return { id: link.project_id, role: q.role.get(link.project_id, userId).role };
+  }
+
+  /** Proyectos que impiden borrar la cuenta: es su único administrador y hay más personas. */
+  function blockingProjects(userId) {
+    return q.membershipsOf.all(userId)
+      .filter((m) => m.role === 'admin' && q.adminCount.get(m.project_id).n <= 1 && q.memberCount.get(m.project_id).n > 1)
+      .map((m) => projectName(m.project_id));
   }
 
   function requireRole(userId, projectId, roles) {
@@ -211,11 +295,7 @@ export function createApp({ dataDir, log = () => {} }) {
 
         if (ch.op === 'del') {
           if (ch.store === 'projects') {
-            q.deleteProjectDocs.run(projectId);
-            q.deleteProjectMemberships.run(projectId);
-            q.deleteProjectInvitations.run(projectId);
-            q.upsertDoc.run('projects', projectId, projectId, null, now, 1, store.nextSeq(), user.id);
-            removeProjectFiles(projectId);
+            wipeProject(projectId, user.id);
             roles.delete(projectId);
           } else if (existing && !existing.deleted) {
             q.upsertDoc.run(ch.store, ch.id, projectId, null, now, 1, store.nextSeq(), user.id);
@@ -302,39 +382,181 @@ export function createApp({ dataDir, log = () => {} }) {
       const email = String(body.email || '').trim().toLowerCase();
       const name = String(body.name || '').trim().slice(0, 80);
       const password = String(body.password || '');
-      if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Introduce un email válido');
+      if (!EMAIL_RE.test(email) || email.length > 200) throw new HttpError(400, 'Introduce un email válido');
       if (!name) throw new HttpError(400, 'Introduce tu nombre');
-      if (password.length < 8) throw new HttpError(400, 'La contraseña debe tener al menos 8 caracteres');
-      if (q.userByEmail.get(email)) throw new HttpError(409, 'Ya existe una cuenta con ese email');
-      const user = { id: crypto.randomUUID(), email, name };
+      checkNewPassword(password);
+      if (q.userByEmail.get(email)) throw new HttpError(409, 'Ya existe una cuenta con ese email. Inicia sesión o recupera la contraseña.');
+      const link = body.invite ? validInvite(String(body.invite)) : null;
+      const user = { id: crypto.randomUUID(), email, name, created_at: Date.now() };
       store.transaction(() => {
-        q.insertUser.run(user.id, email, name, hashPassword(password), Date.now());
+        q.insertUser.run(user.id, email, name, hashPassword(password), user.created_at);
         // Las invitaciones pendientes se convierten en acceso al registrarse.
         for (const inv of q.invitationsForEmail.all(email)) {
           q.setMembership.run(inv.project_id, user.id, inv.role, Date.now());
           q.deleteInvitation.run(inv.project_id, email);
         }
+        if (link) acceptInvite(link, user.id);
       });
       log(`registro: ${email}`);
-      return send(res, 201, newSession(user));
+      return send(res, 201, newSession(user, req));
     }
 
     if (method === 'POST' && p === '/login') {
       throttle(req);
       const body = await readJSON(req);
       const email = String(body.email || '').trim().toLowerCase();
+      checkLocked(email);
       const user = q.userByEmail.get(email);
-      if (!user || !verifyPassword(String(body.password || ''), user.pass)) throw new HttpError(401, 'Email o contraseña incorrectos');
-      return send(res, 200, newSession(user));
+      if (!user || !verifyPassword(String(body.password || ''), user.pass)) {
+        failed(email);
+        throw new HttpError(401, 'Email o contraseña incorrectos');
+      }
+      failures.delete(email);
+      return send(res, 200, newSession(user, req));
+    }
+
+    // Recuperar la contraseña con un código de recuperación (de la cuenta) o de restablecimiento (del administrador del servidor).
+    if (method === 'POST' && p === '/recover') {
+      throttle(req);
+      const body = await readJSON(req);
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      checkLocked(email);
+      const user = q.userByEmail.get(email);
+      const hash = hashCode(body.code);
+      const reset = q.resetCode.get(hash);
+      const viaReset = user && reset && reset.user_id === user.id && reset.expires_at > Date.now();
+      const viaRecovery = user && !viaReset && q.recoveryCode.get(user.id, hash);
+      if (!viaReset && !viaRecovery) {
+        failed(email);
+        throw new HttpError(401, 'El email o el código no son correctos (o el código ya se usó o ha caducado)');
+      }
+      checkNewPassword(password);
+      store.transaction(() => {
+        if (viaReset) q.deleteResetCode.run(hash);
+        else q.deleteRecovery.run(user.id, hash);
+        q.updateUserPass.run(hashPassword(password), user.id);
+        q.deleteSessionsOf.run(user.id); // se cierran todas las sesiones abiertas
+      });
+      failures.delete(email);
+      log(`contraseña recuperada: ${email}`);
+      return send(res, 200, { ...newSession(user, req), recoveryCodesLeft: q.recoveryCount.get(user.id).n });
+    }
+
+    // Datos públicos de un enlace de invitación (para mostrarlos antes de iniciar sesión).
+    if (method === 'GET' && parts[0] === 'invite' && parts.length === 2) {
+      throttle(req);
+      const link = validInvite(parts[1]);
+      return send(res, 200, { projectName: projectName(link.project_id), role: link.role, expiresAt: link.expires_at });
     }
 
     const { user, token } = authenticate(req);
+
+    if (method === 'POST' && parts[0] === 'invite' && parts[2] === 'accept' && parts.length === 3) {
+      const link = validInvite(parts[1]);
+      const project = acceptInvite(link, user.id);
+      return send(res, 200, { project, projects: projectsList(user.id), projectName: projectName(link.project_id) });
+    }
+
+    // ---------- Mi cuenta ----------
+    if (p === '/me' && method === 'PATCH') {
+      const body = await readJSON(req);
+      const name = String(body.name || '').trim().slice(0, 80);
+      if (!name) throw new HttpError(400, 'Introduce tu nombre');
+      q.updateUserName.run(name, user.id);
+      return send(res, 200, { user: publicUser({ ...user, name }) });
+    }
+    if (p === '/me/email' && method === 'POST') {
+      const body = await readJSON(req);
+      const email = String(body.email || '').trim().toLowerCase();
+      if (!verifyPassword(String(body.password || ''), q.userPass.get(user.id).pass)) throw new HttpError(403, 'La contraseña no es correcta');
+      if (!EMAIL_RE.test(email) || email.length > 200) throw new HttpError(400, 'Introduce un email válido');
+      const other = q.userByEmail.get(email);
+      if (other && other.id !== user.id) throw new HttpError(409, 'Ya existe otra cuenta con ese email');
+      store.transaction(() => {
+        q.updateUserEmail.run(email, user.id);
+        // Invitaciones pendientes para el nuevo email
+        for (const inv of q.invitationsForEmail.all(email)) {
+          if (!q.role.get(inv.project_id, user.id)) q.setMembership.run(inv.project_id, user.id, inv.role, Date.now());
+          q.deleteInvitation.run(inv.project_id, email);
+        }
+      });
+      log(`cambio de email: ${user.email} → ${email}`);
+      return send(res, 200, { user: publicUser({ ...user, email }), projects: projectsList(user.id) });
+    }
+    if (p === '/me/password' && method === 'POST') {
+      const body = await readJSON(req);
+      if (!verifyPassword(String(body.current || ''), q.userPass.get(user.id).pass)) throw new HttpError(403, 'La contraseña actual no es correcta');
+      const next = String(body.password || '');
+      checkNewPassword(next);
+      store.transaction(() => {
+        q.updateUserPass.run(hashPassword(next), user.id);
+        q.deleteOtherSessions.run(user.id, token); // por seguridad, se cierran los demás dispositivos
+        q.deleteResetCodesOf.run(user.id);
+      });
+      return send(res, 200, { ok: true });
+    }
+    if (p === '/me/sessions' && method === 'GET') {
+      const mine = sessionId(token);
+      const list = q.sessionsOf.all(user.id)
+        .filter((s) => Date.now() - s.last_seen <= SESSION_TTL)
+        .map((s) => ({ id: sessionId(s.token), device: describeAgent(s.agent || ''), createdAt: s.created_at, lastSeen: s.last_seen, current: sessionId(s.token) === mine }));
+      return send(res, 200, { sessions: list });
+    }
+    if (p === '/me/sessions/others' && method === 'DELETE') {
+      q.deleteOtherSessions.run(user.id, token);
+      return send(res, 200, { ok: true });
+    }
+    if (parts[0] === 'me' && parts[1] === 'sessions' && parts.length === 3 && method === 'DELETE') {
+      const s = q.sessionsOf.all(user.id).find((x) => sessionId(x.token) === parts[2]);
+      if (!s) throw new HttpError(404, 'Esa sesión ya no está abierta');
+      q.deleteSession.run(s.token);
+      return send(res, 200, { ok: true, current: s.token === token });
+    }
+    if (p === '/me/recovery-codes' && method === 'POST') {
+      const body = await readJSON(req);
+      if (!verifyPassword(String(body.password || ''), q.userPass.get(user.id).pass)) throw new HttpError(403, 'La contraseña no es correcta');
+      const codes = Array.from({ length: 8 }, () => makeCode(2));
+      store.transaction(() => {
+        q.deleteRecoveryOf.run(user.id); // los anteriores dejan de valer
+        for (const c of codes) q.insertRecovery.run(user.id, hashCode(c), Date.now());
+      });
+      return send(res, 200, { codes });
+    }
+    if (p === '/me' && method === 'DELETE') {
+      const body = await readJSON(req);
+      if (!verifyPassword(String(body.password || ''), q.userPass.get(user.id).pass)) throw new HttpError(403, 'La contraseña no es correcta');
+      const blocking = blockingProjects(user.id);
+      if (blocking.length) {
+        throw new HttpError(409, `Eres el único administrador de: ${blocking.join(', ')}. Nombra a otro administrador (Equipo › Acceso) o elimina el proyecto antes de borrar tu cuenta.`);
+      }
+      store.transaction(() => {
+        for (const m of q.membershipsOf.all(user.id)) {
+          // Los proyectos en los que sólo estaba esta persona se eliminan; en los demás se retira su acceso.
+          if (q.memberCount.get(m.project_id).n <= 1) wipeProject(m.project_id, user.id);
+          else q.deleteMembership.run(m.project_id, user.id);
+        }
+        q.deleteSessionsOf.run(user.id);
+        q.deleteRecoveryOf.run(user.id);
+        q.deleteResetCodesOf.run(user.id);
+        q.deleteUser.run(user.id);
+      });
+      log(`cuenta eliminada: ${user.email}`);
+      return send(res, 200, { ok: true });
+    }
 
     if (method === 'POST' && p === '/logout') {
       q.deleteSession.run(token);
       return send(res, 200, { ok: true });
     }
-    if (method === 'GET' && p === '/me') return send(res, 200, { user: publicUser(user), projects: projectsList(user.id) });
+    if (method === 'GET' && p === '/me') {
+      return send(res, 200, {
+        user: publicUser(user),
+        projects: projectsList(user.id),
+        recoveryCodesLeft: q.recoveryCount.get(user.id).n,
+        blockingProjects: blockingProjects(user.id),
+      });
+    }
     if (method === 'POST' && p === '/sync') return send(res, 200, handleSync(user, await readJSON(req)));
 
     // /files/:id
@@ -368,9 +590,28 @@ export function createApp({ dataDir, log = () => {} }) {
       const projectId = parts[1];
       if (method === 'GET' && parts.length === 3) {
         requireRole(user.id, projectId, ROLES);
-        return send(res, 200, { members: q.projectMembers.all(projectId), invitations: q.invitationsOf.all(projectId) });
+        const admin = q.role.get(projectId, user.id).role === 'admin';
+        return send(res, 200, {
+          members: q.projectMembers.all(projectId),
+          invitations: q.invitationsOf.all(projectId),
+          links: admin ? q.inviteLinksOf.all(projectId, Date.now()) : [],
+        });
       }
       requireRole(user.id, projectId, ['admin']);
+      if (parts[3] === 'links' && parts.length === 4 && method === 'POST') {
+        const body = await readJSON(req);
+        const role = String(body.role || 'miembro');
+        if (!ROLES.includes(role)) throw new HttpError(400, 'Rol no válido');
+        const days = Math.min(30, Math.max(1, Number(body.days) || 7));
+        const linkToken = crypto.randomBytes(18).toString('base64url');
+        const now = Date.now();
+        q.insertInviteLink.run(linkToken, projectId, role, user.id, now, now + days * 86400000);
+        return send(res, 201, { token: linkToken, role, created_at: now, expires_at: now + days * 86400000, uses: 0 });
+      }
+      if (parts[3] === 'links' && parts[4] && parts.length === 5 && method === 'DELETE') {
+        q.deleteInviteLink.run(projectId, parts[4]);
+        return send(res, 200, { ok: true });
+      }
       if (method === 'POST' && parts.length === 3) {
         const body = await readJSON(req);
         const email = String(body.email || '').trim().toLowerCase();
@@ -445,7 +686,11 @@ export function createApp({ dataDir, log = () => {} }) {
     }
   });
 
-  const cleanup = setInterval(() => q.deleteOldSessions.run(Date.now() - SESSION_TTL), 3600000);
+  const cleanup = setInterval(() => {
+    q.deleteOldSessions.run(Date.now() - SESSION_TTL);
+    q.deleteOldResetCodes.run(Date.now());
+    q.deleteOldInviteLinks.run(Date.now());
+  }, 3600000);
   cleanup.unref();
   server.on('close', () => {
     clearInterval(cleanup);

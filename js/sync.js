@@ -109,8 +109,37 @@ function acceptSession(data) {
 export async function login(email, password) {
   acceptSession(await api('/login', { method: 'POST', body: { email, password } }));
 }
-export async function register(name, email, password) {
-  acceptSession(await api('/register', { method: 'POST', body: { name, email, password } }));
+export async function register(name, email, password, invite) {
+  acceptSession(await api('/register', { method: 'POST', body: { name, email, password, ...(invite ? { invite } : {}) } }));
+}
+/** Nueva contraseña con un código de recuperación o de restablecimiento. Inicia sesión al terminar. */
+export async function recover(email, code, password) {
+  const data = await api('/recover', { method: 'POST', body: { email, code, password } });
+  acceptSession(data);
+  return data;
+}
+/** Actualiza los datos de la cuenta guardados en este dispositivo (tras cambiar nombre o email). */
+export function updateAccount(user, projects) {
+  session.user = { ...session.user, ...user };
+  if (projects) session.roles = Object.fromEntries(projects.map((p) => [p.id, p.role]));
+  persist();
+  setUserOverride(session.user.name);
+}
+/** Datos públicos de un enlace de invitación. */
+export const inviteInfo = (token) => api(`/invite/${encodeURIComponent(token)}`);
+/** Acepta una invitación con la sesión actual; devuelve el proyecto ({ id, role }). */
+export async function acceptInvite(token) {
+  const r = await api(`/invite/${encodeURIComponent(token)}/accept`, { method: 'POST' });
+  session.roles = Object.fromEntries(r.projects.map((p) => [p.id, p.role]));
+  persist();
+  return r;
+}
+/** Cierra la sesión solo en este dispositivo, sin llamar al servidor (p. ej. tras borrar la cuenta). */
+export function forgetSession() {
+  session.token = null;
+  persist();
+  location.hash = '#/';
+  location.reload();
 }
 export async function logout() {
   try {

@@ -1,5 +1,5 @@
 import { db, uid, statusOf } from '../db.js';
-import { esc, modal, toast, confirmDialog, avatar, initials, MEMBER_COLORS } from '../ui.js';
+import { esc, modal, toast, confirmDialog, avatar, initials, fmtDateTime, MEMBER_COLORS } from '../ui.js';
 import { session, api, isAdmin, syncNow, ROLE_LABELS } from '../sync.js';
 
 export function renderTeam(view, ctx) {
@@ -139,7 +139,28 @@ async function renderAccess(el, ctx) {
       <button class="btn btn-primary">Dar acceso</button>
     </form>
     <p class="muted small">Si la persona aún no tiene cuenta, recibirá el acceso al registrarse con ese email en
-      <code class="copyable" id="app-url" title="Copiar">${esc(appUrl)}</code>. Envíale el enlace por el medio que prefieras.</p>` : ''}`;
+      <code class="copyable" id="app-url" title="Copiar">${esc(appUrl)}</code>. Envíale el enlace por el medio que prefieras.</p>
+    <h4 class="access-sub">Enlaces de invitación</h4>
+    <p class="muted small">Más fácil: crea un enlace y envíalo por WhatsApp o correo. Quien lo abra crea su cuenta (o entra con la suya)
+      y se une al proyecto con el rol elegido. Cualquiera con el enlace puede unirse hasta que caduque o lo anules.</p>
+    ${data.links.length ? `
+    <ul class="invite-links">
+      ${data.links.map((l) => `
+        <li>
+          <div class="access-who"><strong>${esc(ROLE_LABELS[l.role])}</strong>
+            <span class="muted small">Caduca el ${esc(fmtDateTime(l.expires_at))} · ${l.uses ? `usado ${l.uses} ${l.uses === 1 ? 'vez' : 'veces'}` : 'sin usar'}</span></div>
+          <button class="btn btn-sm" data-link-copy="${esc(l.token)}">Copiar</button>
+          ${navigator.share ? `<button class="btn btn-sm" data-link-share="${esc(l.token)}" data-role-label="${esc(ROLE_LABELS[l.role])}">Compartir…</button>` : ''}
+          <button class="icon-btn" data-link-del="${esc(l.token)}" aria-label="Anular enlace" title="Anular enlace">✕</button>
+        </li>`).join('')}
+    </ul>` : ''}
+    <form class="invite-form" id="link-form">
+      <select name="role" aria-label="Rol del enlace">${roleOptions('miembro')}</select>
+      <select name="days" aria-label="Validez">
+        <option value="1">Válido 1 día</option><option value="7" selected>Válido 7 días</option><option value="30">Válido 30 días</option>
+      </select>
+      <button class="btn">+ Crear enlace</button>
+    </form>` : ''}`;
 
   const refresh = async () => {
     await syncNow();
@@ -175,6 +196,40 @@ async function renderAccess(el, ctx) {
   );
   el.querySelectorAll('[data-uninvite]').forEach((b) =>
     b.addEventListener('click', () => run(() => api(`/projects/${pid}/access/invitations/${encodeURIComponent(b.dataset.uninvite)}`, { method: 'DELETE' }), 'Invitación cancelada'))
+  );
+  const linkUrl = (token) => `${appUrl}#/invite/${token}`;
+  const copyLink = async (token) => {
+    try {
+      await navigator.clipboard.writeText(linkUrl(token));
+      toast('Enlace copiado. Pégalo en WhatsApp o en un correo.');
+    } catch {
+      prompt('Copia el enlace:', linkUrl(token));
+    }
+  };
+  const shareLink = (token, roleLabel) =>
+    navigator
+      .share({ title: `Invitación a ${ctx.project.name}`, text: `Te invito al proyecto «${ctx.project.name}» en ObraPlan (${roleLabel}):`, url: linkUrl(token) })
+      .catch((err) => err.name !== 'AbortError' && copyLink(token)); // sin permiso para compartir: se copia
+  el.querySelector('#link-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true;
+    try {
+      const link = await api(`/projects/${pid}/access/links`, { method: 'POST', body: { role: e.target.role.value, days: Number(e.target.days.value) } });
+      if (navigator.share) await shareLink(link.token, ROLE_LABELS[link.role]);
+      else await copyLink(link.token);
+    } catch (err) {
+      toast(err.status ? err.message : 'Sin conexión: no se pudo crear el enlace', 'error');
+    }
+    renderAccess(el, ctx);
+  });
+  el.querySelectorAll('[data-link-copy]').forEach((b) => b.addEventListener('click', () => copyLink(b.dataset.linkCopy)));
+  el.querySelectorAll('[data-link-share]').forEach((b) => b.addEventListener('click', () => shareLink(b.dataset.linkShare, b.dataset.roleLabel)));
+  el.querySelectorAll('[data-link-del]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!(await confirmDialog('¿Anular este enlace? Quien lo tenga ya no podrá unirse con él (quien ya se unió conserva el acceso).', { okLabel: 'Anular' }))) return;
+      run(() => api(`/projects/${pid}/access/links/${b.dataset.linkDel}`, { method: 'DELETE' }), 'Enlace anulado');
+    })
   );
   el.querySelector('#app-url')?.addEventListener('click', async (e) => {
     try {

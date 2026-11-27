@@ -1,7 +1,8 @@
 import { db } from './db.js';
 import { esc, toast, initials } from './ui.js';
-import { session, initSession, onSync, logout, canEdit, roleOf, ROLE_LABELS, syncNow } from './sync.js';
+import { session, initSession, onSync, logout, canEdit, roleOf, ROLE_LABELS, syncNow, acceptInvite } from './sync.js';
 import { renderAuth } from './views/auth.js';
+import { renderAccount } from './views/account.js';
 import { renderProjects } from './views/projects.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderPlans } from './views/plans.js';
@@ -82,8 +83,10 @@ function userMenu() {
   if (session.mode !== 'server' || !session.user) return '';
   return `
     <div class="user-menu">
-      <span class="avatar avatar-sm" style="background:var(--accent)">${esc(initials(session.user.name))}</span>
-      <span class="user-name" title="${esc(session.user.email)}">${esc(session.user.name)}</span>
+      <a class="user-link" href="#/account" title="Mi cuenta · ${esc(session.user.email)}">
+        <span class="avatar avatar-sm" style="background:var(--accent)">${esc(initials(session.user.name))}</span>
+        <span class="user-name">${esc(session.user.name)}</span>
+      </a>
       <button class="link small" data-logout>Cerrar sesión</button>
     </div>`;
 }
@@ -119,9 +122,12 @@ async function route() {
   closeTaskDrawer();
   document.getElementById('modal-root').innerHTML = ''; // los diálogos no sobreviven a un cambio de pantalla
 
+  if (parts[0] === 'invite' && parts[1]) return openInvite(parts[1]);
+
   if (parts[0] !== 'p' || !parts[1]) {
-    document.title = 'ObraPlan · Proyectos';
-    current = { projects: true };
+    const account = parts[0] === 'account';
+    document.title = account ? 'ObraPlan · Mi cuenta' : 'ObraPlan · Proyectos';
+    current = account ? null : { projects: true };
     document.body.classList.remove('readonly');
     app.innerHTML = `
       <header class="topbar">
@@ -132,7 +138,8 @@ async function route() {
       </header>
       <main class="page" id="view"></main>`;
     bindChrome();
-    await renderProjects(document.getElementById('view'));
+    if (account) await renderAccount(document.getElementById('view'));
+    else await renderProjects(document.getElementById('view'));
     return;
   }
 
@@ -214,12 +221,39 @@ async function route() {
   await render();
 }
 
+/** Enlace de invitación (#/invite/<token>) con la sesión ya iniciada. */
+async function openInvite(token) {
+  if (session.mode !== 'server') {
+    app.innerHTML = `
+      <div class="auth"><div class="auth-card card">
+        <div class="brand auth-brand"><img src="icons/icon.svg" alt="" /> ObraPlan</div>
+        <p class="auth-error">Esta invitación es para el servidor de un equipo y esta copia de la app funciona sin servidor (modo local).
+          Abre el enlace completo que te enviaron, con la dirección del servidor de tu empresa.</p>
+        <a class="btn btn-block" href="#/">Ir a mis proyectos</a>
+      </div></div>`;
+    return;
+  }
+  app.innerHTML = '<div class="auth"><p class="muted">Uniéndote al proyecto...</p></div>';
+  try {
+    const r = await acceptInvite(token);
+    toast(`Te has unido a «${r.projectName}»`);
+    await syncNow();
+    location.replace(`#/p/${r.project.id}`);
+  } catch (err) {
+    toast(err.status ? err.message : 'Sin conexión: no se pudo aceptar la invitación', 'error');
+    location.replace('#/');
+  }
+}
+
 // ---------- Arranque ----------
 async function boot() {
   // Pide al navegador que no borre los datos locales (IndexedDB) cuando le falte espacio.
   navigator.storage?.persist?.().catch(() => {});
   const mode = await initSession();
-  if (mode === 'login') return showLogin();
+  if (mode === 'login') {
+    const invite = location.hash.match(/^#\/invite\/([A-Za-z0-9_-]+)/)?.[1];
+    return showLogin('', invite);
+  }
   // Al abrir la app (no al recargar la pestaña) se empieza por la lista de proyectos, salvo que se abra
   // un enlace concreto (p. ej. desde un aviso de tarea, que lleva ?task=).
   try {
@@ -241,13 +275,42 @@ async function boot() {
   });
   window.addEventListener('hashchange', route);
   route();
+  afterRecovery();
   startReminders();
 }
 
-function showLogin(message) {
+/** Tras recuperar la contraseña con un código, recuerda cuántos quedan. */
+function afterRecovery() {
+  let left = null;
+  try {
+    left = sessionStorage.getItem('obraplan.recovered');
+    sessionStorage.removeItem('obraplan.recovered');
+  } catch {
+    /* sin sessionStorage */
+  }
+  if (left === null) return;
+  const n = Number(left);
+  toast(left === '' ? 'Contraseña cambiada' : n > 2 ? `Contraseña cambiada. Te quedan ${n} códigos de recuperación.`
+    : `Contraseña cambiada. Te quedan ${n} códigos de recuperación: crea unos nuevos en Mi cuenta.`, n > 2 || left === '' ? 'ok' : 'error');
+}
+
+function showLogin(message, invite = null) {
   closeTaskDrawer();
   document.title = 'ObraPlan · Iniciar sesión';
-  renderAuth(app, { message, onDone: () => location.reload() });
+  renderAuth(app, {
+    message,
+    invite,
+    onDone: (projectId) => {
+      // Tras unirse con un enlace se abre ese proyecto; si no, la pantalla de inicio.
+      history.replaceState(null, '', projectId ? `#/p/${projectId}` : '#/');
+      try {
+        sessionStorage.setItem('obraplan.started', '1'); // que el arranque no cambie la dirección
+      } catch {
+        /* sin sessionStorage */
+      }
+      location.reload();
+    },
+  });
 }
 
 boot();

@@ -46,7 +46,10 @@ export function renderSettings(view, ctx) {
         <h3>Tu cuenta</h3>
         <p><strong>${esc(session.user.name)}</strong><br /><span class="muted small">${esc(session.user.email)}</span></p>
         <p class="muted small">Tu nombre aparece en comentarios y en el historial de cambios.</p>
-        <button class="btn" id="logout" type="button">Cerrar sesión</button>
+        <div class="btn-row">
+          <a class="btn" href="#/account">Mi cuenta</a>
+          <button class="btn" id="logout" type="button">Cerrar sesión</button>
+        </div>
       </section>` : `
       <form class="card" id="user-form">
         <h3>Tu nombre</h3>
