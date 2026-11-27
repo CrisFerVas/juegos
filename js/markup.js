@@ -227,7 +227,8 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
   // ---------- Recortes (herramienta «Recortar resaltado») ----------
   // m.clip = { keep: [x0, y0, x1, y1] | null, cuts: [[x0, y0, x1, y1], ...] } en coordenadas 0-1:
   // se ve solo lo que queda dentro de `keep` y fuera de cada `cut`. El trazo original no se modifica.
-  const CLIPPABLE = ['marker', 'pen'];
+  // Trazos que se pueden recortar (no textos ni mediciones, cuyo valor dejaría de verse)
+  const CLIPPABLE = ['marker', 'pen', 'line', 'arrow', 'rect', 'ellipse', 'cloud'];
   let clipSeq = 0;
   const rectPx = ([x0, y0, x1, y1]) => [x0 * W, y0 * H, x1 * W, y1 * H];
   function wrapClip(m, inner) {

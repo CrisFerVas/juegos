@@ -153,8 +153,9 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     Se muestra en dibujo y al mover/redimensionar una anotación seleccionada.
 29. Herramienta «Recortar resaltado» (paso 1, en el visor del plano; no en el editor de fotos): recuadro
     transparente que se mueve y redimensiona (8 tiradores, fuera oscurecido) y dos botones: «Borrar dentro»
-    (añade un `cut`) y «Dejar solo dentro» (interseca `keep`). Afecta a rotulador y lápiz que toquen el
-    recuadro. Datos: `m.clip = { keep: [x0,y0,x1,y1] | null, cuts: [[...]] }` (0-1); el trazo no se modifica.
+    (añade un `cut`; si la anotación queda entera dentro, se borra) y «Dejar solo dentro» (interseca `keep`).
+    Afecta a rotulador, lápiz, línea, flecha y formas (no textos ni mediciones). Los botones responden también
+    a `pointerup` (el usuario informó «no recorta» en Android: el primer clic tras arrastrar se perdía). Datos: `m.clip = { keep: [x0,y0,x1,y1] | null, cuts: [[...]] }` (0-1); el trazo no se modifica.
     SVG: `<clipPath>` anidados (cada cut = todo el plano menos su recuadro, `clip-rule="evenodd"`); PDF:
     `W n` para keep y `W* n` por cada cut (`withClip` en `exportplan.js`). Selección/borrador ignoran la zona
     recortada; mover o redimensionar la anotación mueve también sus recortes. Historial: entrada `batch`

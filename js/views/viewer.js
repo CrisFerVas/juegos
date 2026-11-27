@@ -395,11 +395,28 @@ export async function renderViewer(view, ctx, sheetId, params) {
   }
   const applyClip = async (mode) => {
     const n = await markup.clipApply(mode);
-    toast(n ? `${n} resaltado(s) recortado(s) · puedes deshacerlo con ↶` : 'El recuadro no toca ningún resaltado (rotulador o lápiz)', n ? undefined : 'error');
+    toast(n ? `${n} anotación(es) recortada(s) · puedes deshacerlo con ↶` : 'El recuadro no toca ninguna anotación que se pueda recortar (resaltados, líneas o formas)', n ? undefined : 'error');
     syncMarkupBar();
   };
-  view.querySelector('#clip-cut').onclick = () => applyClip('cut');
-  view.querySelector('#clip-keep').onclick = () => applyClip('keep');
+  // En algunos Android el primer clic tras arrastrar el recuadro se pierde: también al levantar el dedo
+  const onTap = (btn, fn) => {
+    let down = false;
+    let lastUp = -Infinity;
+    btn.addEventListener('pointerdown', () => (down = true));
+    btn.addEventListener('pointerleave', () => (down = false));
+    btn.addEventListener('pointerup', () => {
+      if (down) {
+        lastUp = performance.now();
+        fn();
+      }
+      down = false;
+    });
+    btn.addEventListener('click', () => {
+      if (performance.now() - lastUp > 700) fn();
+    });
+  };
+  onTap(view.querySelector('#clip-cut'), () => applyClip('cut'));
+  onTap(view.querySelector('#clip-keep'), () => applyClip('keep'));
   view.querySelector('#scale-chip').onclick = () => calibrateDialog(null);
 
   // ---------- Escala / calibración ----------
