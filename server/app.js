@@ -248,10 +248,10 @@ export function createApp({ dataDir, log = () => {} }) {
             echo.add(key); // la versión del servidor es más reciente
             continue;
           }
-        } else if (ch.store === 'tasks') {
-          // Evita números de tarea duplicados cuando varias personas crean tareas sin conexión.
-          if (!Number.isInteger(data.number) || q.taskNumberTaken.get(projectId, ch.id, data.number)) {
-            data.number = q.maxTaskNumber.get(projectId).n + 1;
+        } else if (ch.store === 'tasks' || ch.store === 'forms') {
+          // Evita números duplicados cuando varias personas crean tareas o partes sin conexión.
+          if (!Number.isInteger(data.number) || q.numberTaken.get(ch.store, projectId, ch.id, data.number)) {
+            data.number = q.maxNumber.get(ch.store, projectId).n + 1;
             echo.add(key);
           }
         }

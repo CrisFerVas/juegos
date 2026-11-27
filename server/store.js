@@ -1,7 +1,7 @@
 // Persistencia del servidor con SQLite (módulo integrado en Node >= 22.5).
 import { DatabaseSync } from 'node:sqlite';
 
-export const SYNCED_STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups'];
+export const SYNCED_STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups', 'forms', 'templates'];
 export const ROLES = ['admin', 'miembro', 'seguidor'];
 
 const SCHEMA = `
@@ -81,10 +81,11 @@ export function openStore(file) {
       ON CONFLICT (store, id) DO UPDATE SET data = excluded.data, rev = excluded.rev, deleted = excluded.deleted,
       seq = excluded.seq, updated_by = excluded.updated_by`),
     changesSince: db.prepare('SELECT * FROM docs WHERE project_id = ? AND seq > ? ORDER BY seq'),
-    taskNumberTaken: db.prepare(`SELECT 1 FROM docs WHERE store = 'tasks' AND project_id = ? AND deleted = 0 AND id <> ?
+    // Números consecutivos por proyecto (tareas y partes)
+    numberTaken: db.prepare(`SELECT 1 FROM docs WHERE store = ? AND project_id = ? AND deleted = 0 AND id <> ?
       AND json_extract(data, '$.number') = ? LIMIT 1`),
-    maxTaskNumber: db.prepare(`SELECT COALESCE(MAX(json_extract(data, '$.number')), 0) AS n FROM docs
-      WHERE store = 'tasks' AND project_id = ? AND deleted = 0`),
+    maxNumber: db.prepare(`SELECT COALESCE(MAX(json_extract(data, '$.number')), 0) AS n FROM docs
+      WHERE store = ? AND project_id = ? AND deleted = 0`),
     deleteProjectDocs: db.prepare(`DELETE FROM docs WHERE project_id = ? AND store <> 'projects'`),
     deleteProjectMemberships: db.prepare('DELETE FROM memberships WHERE project_id = ?'),
     deleteProjectInvitations: db.prepare('DELETE FROM invitations WHERE project_id = ?'),

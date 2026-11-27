@@ -123,6 +123,16 @@ test('números de tarea duplicados se renumeran', async () => {
   assert.equal(t2.data.number, 2);
 });
 
+test('partes: se sincronizan y los números duplicados se renumeran', async () => {
+  const a = await sync(ana.token, [put('forms', 'f-1', pid, { number: 1, title: 'Parte diario', values: {} })]);
+  assert.equal(a.body.changes.find((c) => c.id === 'f-1').data.number, 1);
+  const b = await sync(ben.token, [put('forms', 'f-2', pid, { number: 1, title: 'Inspección', values: {} })]);
+  assert.equal(b.body.changes.find((c) => c.id === 'f-2').data.number, 2);
+  // Plantillas propias
+  const t = await sync(ben.token, [put('templates', 'tpl-x', pid, { name: 'Mi plantilla', sections: [] })]);
+  assert.equal(t.body.rejected.length, 0);
+});
+
 test('comentarios simultáneos se fusionan y gana la edición más reciente', async () => {
   const old = Date.now() - 10000;
   await sync(ana.token, [put('tasks', 't1', pid, { number: 1, title: 'Versión Ana', comments: [{ id: 'c-ana', at: 1, text: 'de Ana' }], activity: [] }, Date.now())]);

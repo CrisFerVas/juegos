@@ -64,9 +64,22 @@ export function modal({ title, body, submitLabel = 'Guardar', onSubmit, wide = f
   };
   document.addEventListener('keydown', onKey);
   const form = wrap.querySelector('form');
+  let busy = false;
+  let lastSubmit = -Infinity;
+  // Algunos móviles descartan el clic del primer toque tras un trazo (p. ej. al firmar):
+  // el botón principal también responde al levantar el dedo, sin ejecutarse dos veces.
+  const submitBtn = form.querySelector('[type=submit]');
+  let downOnSubmit = false;
+  submitBtn?.addEventListener('pointerdown', () => (downOnSubmit = true));
+  submitBtn?.addEventListener('pointerleave', () => (downOnSubmit = false));
+  submitBtn?.addEventListener('pointerup', () => {
+    if (downOnSubmit && !submitBtn.disabled) form.requestSubmit();
+    downOnSubmit = false;
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!onSubmit) return;
+    if (!onSubmit || busy || performance.now() - lastSubmit < 500) return;
+    lastSubmit = performance.now();
     const req = [...form.querySelectorAll('[required]')].find((i) => !i.value.trim());
     if (req) {
       req.focus();
@@ -74,7 +87,13 @@ export function modal({ title, body, submitLabel = 'Guardar', onSubmit, wide = f
       return;
     }
     const values = Object.fromEntries(new FormData(form).entries());
-    const res = await onSubmit(values, form);
+    busy = true;
+    let res;
+    try {
+      res = await onSubmit(values, form);
+    } finally {
+      busy = false;
+    }
     if (res !== false) close();
   });
   setTimeout(() => form.querySelector('input:not([type=hidden]),textarea,select')?.focus(), 30);

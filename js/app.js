@@ -9,6 +9,9 @@ import { renderViewer } from './views/viewer.js';
 import { renderTasks } from './views/tasks.js';
 import { renderTeam } from './views/team.js';
 import { renderSettings } from './views/settings.js';
+import { renderForms } from './views/forms.js';
+import { renderFormDetail } from './views/formDetail.js';
+import { renderTemplateEditor } from './views/templateEditor.js';
 import { closeTaskDrawer, refreshTaskDrawer } from './views/taskDetail.js';
 
 const app = document.getElementById('app');
@@ -17,6 +20,7 @@ const NAV = [
   { id: 'dashboard', label: 'Panel', icon: '▦' },
   { id: 'plans', label: 'Planos', icon: '▤' },
   { id: 'tasks', label: 'Tareas', icon: '☑' },
+  { id: 'forms', label: 'Partes', icon: '📋' },
   { id: 'team', label: 'Equipo', icon: '👥' },
   { id: 'settings', label: 'Ajustes', icon: '⚙' },
 ];
@@ -183,6 +187,8 @@ async function route() {
     dashboard: () => renderDashboard(view, ctx),
     plans: () => (rest[0] ? renderViewer(view, ctx, rest[0], new URLSearchParams(query)) : renderPlans(view, ctx)),
     tasks: () => renderTasks(view, ctx),
+    forms: () =>
+      rest[0] === 'templates' && rest[1] ? renderTemplateEditor(view, ctx, rest[1]) : rest[0] ? renderFormDetail(view, ctx, rest[0]) : renderForms(view, ctx),
     team: () => renderTeam(view, ctx),
     settings: () => renderSettings(view, ctx),
   };

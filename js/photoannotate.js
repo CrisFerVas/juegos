@@ -71,7 +71,7 @@ const toolIcon = (id) => MARKUP_TOOLS.find((t) => t.id === id);
 function onTap(btn, fn) {
   if (!btn) return;
   let downOnIt = false;
-  let last = 0;
+  let last = -Infinity;
   const run = (e) => {
     if (btn.disabled || performance.now() - last < 500) return;
     last = performance.now();

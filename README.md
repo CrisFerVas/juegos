@@ -21,6 +21,7 @@ Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
 | **Fotos en el plano** | Botón 📷 Foto: se toca el punto del plano y se elige **abrir la cámara** (trasera, en móvil/tablet) o **subir desde el dispositivo** (varias a la vez). Iconos de cámara con contador, visor a pantalla completa con deslizamiento, descripción, añadir más fotos, crear una tarea con ellas y arrastrar para reubicar. **Anotar fotos** con las mismas herramientas que los planos (sin mediciones): lápiz, rotulador, líneas, flechas, formas, nubes, texto y borrador. |
 | **Mediciones** | Calibración de la escala del plano con una cota conocida o con la escala de impresión (1:50, 1:100…, usando el tamaño real del papel del PDF). Herramientas de distancia, recorrido (suma de tramos) y área en m², que se recalculan si cambia la escala. |
 | **Versiones y comparación** | Historial de versiones de cada plano. Comparación por **superposición** (rojo = eliminado, azul = nuevo, gris = sin cambios) o **cortina** deslizante; al hacer zoom se recalcula nítida desde los PDF originales. |
+| **Partes e inspecciones** | Parte diario de obra (clima, personal por empresa, trabajos, materiales, incidencias), inspección de calidad y checklist de seguridad con **Conforme / No conforme / N/A**. Plantillas propias editables. Fotos, **firma con el dedo**, cierre del parte, **crear tarea desde una no conformidad** e impresión / PDF. |
 | **Tareas** | Estados (prioridad alta/media/baja, completada, verificada), responsable, categoría, fechas, ubicación, etiquetas, descripción, lista de verificación, fotos (cámara del móvil), comentarios e historial automático de cambios. |
 | **Lista y tablero** | Filtros (texto, estado, categoría, responsable, plano, vencidas), ordenación, vista Kanban con arrastrar y soltar, acciones masivas (estado, asignación, eliminar). |
 | **Informes** | Exportación a CSV (compatible con Excel) e informe imprimible / PDF con fotos. |
@@ -78,8 +79,10 @@ js/compare.js           Comparación de versiones (superposición de colores y c
 js/photopins.js         Fotos de obra colocadas sobre el plano y visor de fotos
 js/photoannotate.js     Anotaciones sobre fotos (editor a pantalla completa)
 js/camera.js            Cámara integrada con vista previa en directo
+js/forms.js             Partes: plantillas incluidas, creación, resumen e impresión
+js/signature.js         Firma con el dedo
 js/ui.js                Utilidades de interfaz (modales, avisos, formato)
-js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, team, settings
+js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, forms, formDetail, templateEditor, team, settings
 server/app.js           API HTTP (cuentas, permisos, sincronización, archivos) y servidor de la app
 server/store.js         Esquema y consultas SQLite
 server/test/            Pruebas de la API (node --test)
@@ -105,5 +108,4 @@ Los PDF se procesan con [pdf.js](https://mozilla.github.io/pdf.js/), que se carg
 Siguientes fases previstas:
 
 1. **Notificaciones** de asignación y vencimiento (email / push) y recuperación de contraseña.
-2. **Formularios** (partes diarios, inspecciones, checklists de calidad/seguridad) con plantillas.
-3. **RFI, presupuestos y horas** por tarea; diagrama de Gantt.
+2. **RFI, presupuestos y horas** por tarea; diagrama de Gantt.

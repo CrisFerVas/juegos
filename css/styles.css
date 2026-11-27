@@ -676,3 +676,74 @@ fieldset.plain:disabled input, fieldset.plain:disabled select, fieldset.plain:di
   .pe-hint { display: none; }
   .pe-head strong { flex: 1; }
 }
+
+/* ---------- Partes e inspecciones ---------- */
+.form-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
+.form-card { display: flex; flex-direction: column; gap: 6px; transition: border-color .15s; }
+.form-card:hover { border-color: var(--accent); }
+.form-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.form-card-title { font-size: 1rem; }
+.form-card-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.form-card-meta .ok, .check-summary .ok { color: #16a34a; font-weight: 600; }
+.form-card-meta .nc, .check-summary .nc { color: var(--danger); font-weight: 600; }
+.form-kind { display: inline-block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); }
+.form-kind.kind-daily { background: #dbeafe; color: #1d4ed8; }
+.form-kind.kind-quality { background: #dcfce7; color: #15803d; }
+.form-kind.kind-safety { background: #fef3c7; color: #b45309; }
+.pill-draft { background: var(--surface-2); color: var(--muted); }
+.pill-closed { background: var(--accent-soft); color: var(--accent); }
+.template-list { display: flex; flex-direction: column; gap: 10px; }
+.template-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.template-card h3 { margin-bottom: 4px; flex-wrap: wrap; }
+.tpl-icon { font-size: 1.6rem; width: 30px; text-align: center; flex: none; }
+
+.form-detail { max-width: 860px; display: flex; flex-direction: column; gap: 12px; }
+.form-head { margin-bottom: 0; align-items: flex-start; }
+.form-head h1 { margin-top: 6px; }
+.form-banner { margin: 0 !important; border-radius: var(--radius); }
+.form-section { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.form-section h3 { margin-bottom: 8px; }
+.req { color: var(--danger); }
+.save-state { color: var(--accent); }
+.check-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .9rem; padding-top: 4px; }
+.seg-choice { display: flex; gap: 6px; }
+.seg-choice button { flex: 1; max-width: 140px; padding: 10px; border: 2px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: 600 .95rem var(--font); cursor: pointer; }
+.seg-choice button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.check-item { padding: 12px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.check-item:first-of-type { border-top: 0; }
+.check-label { font-weight: 600; }
+.check-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.check-btn { min-height: 44px; padding: 8px 6px; border: 2px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: 700 1rem var(--font); cursor: pointer; }
+.check-btn span { font-weight: 500; font-size: .82rem; }
+.check-btn.on { background: var(--c); border-color: var(--c); color: #fff; }
+.check-item.is-nc { background: color-mix(in srgb, var(--danger) 6%, transparent); margin: 0 -16px; padding: 12px 16px; }
+.check-note { font-size: .92rem; }
+.crew { display: flex; flex-direction: column; gap: 6px; }
+.crew-row { display: grid; grid-template-columns: 1.4fr 1.2fr .6fr .7fr auto; gap: 6px; align-items: center; }
+.crew-row input { padding: 8px; }
+.crew-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sign-view { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.sign-view img { max-width: 240px; max-height: 100px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.sig-pad { position: relative; height: 180px; border: 2px dashed var(--border); border-radius: 12px; background: #fff; margin-bottom: 8px; }
+.sig-pad canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.sig-line { position: absolute; left: 16px; right: 16px; bottom: 34px; border-top: 1px solid #cbd5e1; color: #94a3b8; font-size: .75rem; padding-top: 4px; pointer-events: none; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 12px; }
+.form-locked .write-form { display: none; }
+.tpl-section-head { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.tpl-section-title { font-weight: 700; flex: 1; min-width: 0; }
+.tpl-field { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: var(--surface-2); }
+.tpl-field-actions { display: flex; align-items: center; gap: 4px; }
+@media (max-width: 900px) {
+  .crew-row { grid-template-columns: 1fr 1fr; }
+  .crew-row input[data-k="workers"], .crew-row input[data-k="hours"] { grid-column: auto; }
+  .crew-row .icon-btn { grid-column: 2; justify-self: end; }
+  .check-item.is-nc { margin: 0 -12px; padding: 12px; }
+  .form-actions .btn { flex: 1 1 45%; }
+  .bottom-nav a small { font-size: .62rem; }
+}
+.crew-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.crew-cell small { display: none; color: var(--muted); font-size: .72rem; font-weight: 600; }
+@media (max-width: 900px) {
+  .crew-cell small { display: block; }
+  .crew-row { padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
+}

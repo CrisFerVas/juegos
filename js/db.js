@@ -3,8 +3,8 @@
 // Almacenes internos: outbox (cambios pendientes de sincronizar) y meta (cursores, etc.).
 
 let dbName = 'obraplan';
-const VERSION = 3;
-export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups'];
+const VERSION = 4;
+export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'markups', 'forms', 'templates'];
 
 let dbPromise;
 
@@ -290,7 +290,7 @@ function blobToDataURL(blob) {
 export async function exportProject(projectId) {
   const out = { format: 'obraplan-backup', version: 1, exportedAt: new Date().toISOString() };
   out.project = await db.get('projects', projectId);
-  for (const store of ['members', 'sheets', 'tasks', 'markups']) out[store] = await db.byProject(store, projectId);
+  for (const store of ['members', 'sheets', 'tasks', 'markups', 'forms', 'templates']) out[store] = await db.byProject(store, projectId);
   const files = await db.byProject('files', projectId);
   out.files = [];
   for (const f of files) {
@@ -330,6 +330,21 @@ export async function importProject(backup) {
     // Las anotaciones de fotos apuntan a la foto ('photo:<id>'), no a un plano
     const sheetId = String(m.sheetId || '').startsWith('photo:') ? `photo:${remap(m.sheetId.slice(6))}` : remap(m.sheetId);
     await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId, ...(m.photoIds ? { photoIds: m.photoIds.map(remap) } : {}) });
+  }
+  for (const t of backup.templates || []) await db.put('templates', { ...t, id: remap(t.id), projectId: pid });
+  for (const fm of backup.forms || []) {
+    // Las plantillas incluidas ('tpl-...') conservan su identificador
+    const values = Object.fromEntries(Object.entries(fm.values || {}).map(([k, v]) => [k, v && typeof v === 'object' && v.taskId ? { ...v, taskId: remap(v.taskId) } : v]));
+    await db.put('forms', {
+      ...fm,
+      id: remap(fm.id),
+      projectId: pid,
+      templateId: String(fm.templateId).startsWith('tpl-') ? fm.templateId : remap(fm.templateId),
+      values,
+      photoIds: (fm.photoIds || []).map(remap),
+      signature: fm.signature ? { ...fm.signature, fileId: remap(fm.signature.fileId) } : null,
+      linkedTaskIds: (fm.linkedTaskIds || []).map(remap),
+    });
   }
   for (const t of backup.tasks || []) {
     await db.put('tasks', {
