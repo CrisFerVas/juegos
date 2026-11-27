@@ -52,6 +52,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/folders.js` | Carpetas y subcarpetas de planos (rutas `A/B/C` en `sheet.folder`; vacías en el almacén `folders`) |
 | `js/reminders-core.js` | Reglas y horario de avisos de tareas; script clásico (`self.ObraReminders`) usado por la app y por `sw.js` (`importScripts`) |
 | `js/reminders.js` | Avisos en la app: permiso, ajustes, comprobación cada minuto, sincronización periódica |
+| `js/loupe.js` | Lupa al dibujar con el dedo (imagen + lienzo nítido del PDF + anotaciones en vivo con `<use>`) |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
 
 ## Funcionalidades hechas (en orden)
@@ -145,6 +146,11 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     no se eliminan hasta **salir del plano** (`hashchange`/`pagehide` → `purgePhotoFiles` de los que ya no use
     ningún punto); si la app se cierra de golpe quedan archivos huérfanos (solo ocupan espacio).
     `deletePhotoPin(ctx, pin, { keepFiles })` y `openPhotoViewer(..., { record, deferFiles })`.
+28. Lupa al dibujar con el dedo (no con ratón ni al pellizcar), en el plano y en el editor de fotos: círculo de
+    132 px a 2,5× lo que se ve en pantalla, ~70 px encima del dedo (a un lado si no cabe), con cruz en el punto
+    del trazo. Contenido: la imagen base, una copia del lienzo `canvas.hires` del PDF (nítido con zoom) y las
+    anotaciones con `<use href="#id">` a los grupos `markups-saved`/`markups-draft` (se ve el trazo en curso).
+    Se muestra en dibujo y al mover/redimensionar una anotación seleccionada.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

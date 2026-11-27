@@ -8,6 +8,7 @@ import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer, photoPinMen
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 import { openExportDialog } from '../exportplan.js';
 import { normPath, prettyPath } from '../folders.js';
+import { createLoupe } from '../loupe.js';
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
@@ -304,6 +305,21 @@ export async function renderViewer(view, ctx, sheetId, params) {
     onRecord: () => recordHist({ src: 'markup' }),
   });
   markupRef = markup;
+  // Lupa al dibujar con el dedo (el dedo tapa el punto que se está pintando)
+  const loupe = createLoupe({ img: stage.querySelector('img'), svg: stage.querySelector('svg.markups'), W, H, bounds: () => canvas.getBoundingClientRect(), getHires: () => stage.querySelector('canvas.hires') });
+  let loupeOn = false;
+  const showLoupe = (e) => {
+    if (!loupeOn) return;
+    const p = toPlan(e.clientX, e.clientY);
+    loupe.show(e.clientX, e.clientY, p.x * W, p.y * H, state.scale);
+  };
+  const onLeaveLoupe = () => {
+    if (!view.isConnected) {
+      loupe.destroy();
+      window.removeEventListener('hashchange', onLeaveLoupe);
+    }
+  };
+  window.addEventListener('hashchange', onLeaveLoupe);
   const canTouchMarkups = () => canEdit(ctx.project.id) && markupsVisible && ['view', 'draw'].includes(state.mode);
   const drawTool = () => (state.mode === 'draw' ? markup.settings.tool : null);
   const selBar = view.querySelector('#sel-bar');
@@ -464,6 +480,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    loupeOn = e.pointerType !== 'mouse' && pointers.size === 1;
+    if (pointers.size > 1) loupe.hide();
     clearTimeout(longPress);
     if (pointers.size === 2 && gesture?.type === 'edit') markup.endEdit();
 
@@ -513,7 +531,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
       if (tool === 'eraser') {
         gesture = { type: 'erase' };
         markup.eraseAt(p).then(syncMarkupBar);
-      } else if (markup.start(p)) gesture = { type: 'draw' };
+      } else if (markup.start(p)) {
+        gesture = { type: 'draw' };
+        showLoupe(e);
+      }
       return;
     }
     if (pointers.size === 2 && gesture?.type === 'draw') markup.cancel();
@@ -533,8 +554,14 @@ export async function renderViewer(view, ctx, sheetId, params) {
       clearTimeout(longPress);
       pressStart = null;
     }
-    if (gesture.type === 'edit') return markup.editTo(toPlan(e.clientX, e.clientY));
-    if (gesture.type === 'draw') return markup.move(toPlan(e.clientX, e.clientY));
+    if (gesture.type === 'edit') {
+      showLoupe(e);
+      return markup.editTo(toPlan(e.clientX, e.clientY));
+    }
+    if (gesture.type === 'draw') {
+      if (pointers.size === 1) showLoupe(e);
+      return markup.move(toPlan(e.clientX, e.clientY));
+    }
     if (gesture.type === 'erase') return void markup.eraseAt(toPlan(e.clientX, e.clientY)).then(syncMarkupBar);
     if (gesture.type === 'pan') {
       if (!gesture.moved && Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > TAP_TOLERANCE) gesture.moved = true;
@@ -571,6 +598,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const endPointer = async (e) => {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
+    loupe.hide();
     clearTimeout(longPress);
     pressStart = null;
     const g = gesture;

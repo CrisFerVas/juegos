@@ -4,6 +4,7 @@
 import { db, fileUrl, uid } from './db.js';
 import { toast, trackOverlay } from './ui.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from './markup.js';
+import { createLoupe } from './loupe.js';
 
 export const photoKey = (fileId) => `photo:${fileId}`;
 const PHOTO_TOOLS = ['pen', 'marker', 'line', 'arrow', 'rect', 'ellipse', 'cloud', 'text', 'eraser'];
@@ -105,6 +106,9 @@ export async function mountAnnotatedPhoto(container, ctx, fileId, { zoomable = f
       apply();
     },
     get zoom() { return zoom; },
+    get scale() { return scale; },
+    width: W,
+    height: H,
     onZoom(fn) { onZoom = fn; fn(zoom); },
     destroy: () => ro.disconnect(),
   };
@@ -343,6 +347,20 @@ export function openPhotoAnnotator(ctx, fileId) {
     const pts = new Map();
     let g = null;
     let timer = null;
+    // Lupa al dibujar con el dedo
+    const loupe = createLoupe({ img: area.querySelector('.photo-stage-img'), svg: area.querySelector('svg.markups'), W: view.width, H: view.height, bounds: () => area.getBoundingClientRect() });
+    let loupeOn = false;
+    const showLoupe = (e) => {
+      if (!loupeOn || pts.size !== 1) return;
+      const p = view.toPhoto(e.clientX, e.clientY);
+      loupe.show(e.clientX, e.clientY, p.x * view.width, p.y * view.height, view.scale);
+    };
+    new MutationObserver((_, obs) => {
+      if (!el.isConnected) {
+        loupe.destroy();
+        obs.disconnect();
+      }
+    }).observe(document.body, { childList: true, subtree: true });
     const pinchInfo = () => {
       const [a, b] = [...pts.values()];
       return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
@@ -350,6 +368,8 @@ export function openPhotoAnnotator(ctx, fileId) {
     area.addEventListener('pointerdown', async (e) => {
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       area.setPointerCapture(e.pointerId);
+      loupeOn = e.pointerType !== 'mouse' && pts.size === 1;
+      if (pts.size > 1) loupe.hide();
       if (pts.size === 2) {
         clearTimeout(timer);
         if (g?.type === 'draw') layer.cancel();
@@ -377,6 +397,7 @@ export function openPhotoAnnotator(ctx, fileId) {
         return;
       }
       g = tool === 'text' ? { type: 'tap', start } : layer.start(p) ? { type: 'draw', start } : { type: 'tap', start };
+      if (g.type === 'draw') showLoupe(e);
       clearTimeout(timer);
       timer = setTimeout(() => {
         if (!g || g.moved || !['draw', 'tap'].includes(g.type)) return;
@@ -407,12 +428,14 @@ export function openPhotoAnnotator(ctx, fileId) {
         clearTimeout(timer);
       }
       const p = view.toPhoto(e.clientX, e.clientY);
+      if (g.type === 'edit' || g.type === 'draw') showLoupe(e);
       if (g.type === 'edit') layer.editTo(p);
       else if (g.type === 'draw') layer.move(p);
       else if (g.type === 'erase') layer.eraseAt(p).then(sync);
     });
     const end = async (e) => {
       if (!pts.delete(e.pointerId)) return;
+      loupe.hide();
       clearTimeout(timer);
       const cur = g;
       if (cur && (cur.type === 'pinch' || cur.type === 'ignore')) {

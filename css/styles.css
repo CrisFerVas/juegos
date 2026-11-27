@@ -822,3 +822,15 @@ button.camera-count { background: rgba(255, 255, 255, .14); border: 0; border-ra
 .camera-menu-item b { grid-column: 2; grid-row: 1 / 3; color: #facc15; font-size: 1.1rem; }
 .camera-menu-item.on { background: rgba(255, 255, 255, .12); }
 .camera-menu-item:not(.on):active { background: rgba(255, 255, 255, .08); }
+
+/* Lupa al dibujar con el dedo */
+.loupe { position: fixed; z-index: 90; width: 132px; height: 132px; border-radius: 50%; overflow: hidden; pointer-events: none;
+  background: #fff; border: 3px solid #fff; box-shadow: 0 6px 22px rgba(0, 0, 0, .45), 0 0 0 1px rgba(15, 23, 42, .35); }
+.loupe-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.loupe-inner img { display: block; width: 100%; height: 100%; }
+.loupe-sharp { position: absolute; display: none; }
+.loupe-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.loupe-cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; }
+.loupe-cross::before, .loupe-cross::after { content: ''; position: absolute; background: rgba(15, 23, 42, .75); box-shadow: 0 0 0 1px rgba(255, 255, 255, .8); }
+.loupe-cross::before { left: 8px; top: 0; width: 2px; height: 18px; }
+.loupe-cross::after { top: 8px; left: 0; height: 2px; width: 18px; }
