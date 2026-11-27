@@ -80,6 +80,10 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     (`#/p/:id/plans?f=<ruta>`), crear/renombrar/mover/eliminar (al eliminar, el contenido sube un nivel),
     subir planos a la carpeta actual o a una subcarpeta nueva, búsqueda global, el visor vuelve a la carpeta
     del plano y agrupa el selector de planos por carpeta. Datos antiguos («Arquitectura») siguen valiendo.
+17. Pulsación larga sobre una foto del plano → menú (Ver / Mover / Eliminar; `photoPinMenu`, `deletePhotoPin` en
+    `photopins.js`). «Mover» activa el modo `movephoto` del visor: tocar el nuevo punto o arrastrar esa foto;
+    aviso con botón Cancelar. Las fotos ya **no** se arrastran en modo normal (evita moverlas sin querer al
+    desplazar el plano); los pines de tareas sí. Solo para quien puede editar.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.

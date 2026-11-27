@@ -4,7 +4,7 @@ import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
 import { createCompare } from '../compare.js';
-import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer } from '../photopins.js';
+import { loadPhotoPins, photoPinsHTML, addPhotoPin, openPhotoViewer, photoPinMenu, deletePhotoPin } from '../photopins.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '../markup.js';
 import { openExportDialog } from '../exportplan.js';
 import { normPath, prettyPath } from '../folders.js';
@@ -195,7 +195,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
         return `<button class="pin ${isOverdue(t) ? 'pin-overdue' : ''} ${t.id === state.placeTaskId ? 'pin-placing' : ''}" data-pin="${t.id}"
           style="left:${t.x * W}px;top:${t.y * H}px;--c:${st.color}" title="#${t.number} ${esc(t.title)}">${t.number}</button>`;
       })
-      .join('') + (state.photosVisible ? photoPinsHTML(photoPins, W, H) : '');
+      .join('') + (state.photosVisible || state.movePhotoId ? photoPinsHTML(photoPins, W, H) : '');
+    if (state.movePhotoId) pinsEl.querySelector(`[data-photo-pin="${CSS.escape(state.movePhotoId)}"]`)?.classList.add('pin-moving');
     const all = sheetTasks();
     listEl.innerHTML = `
       <div class="viewer-list-head"><strong>Tareas en este plano</strong><span class="muted small">${tasks.length}/${all.length}</span></div>
@@ -235,8 +236,12 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   const setMode = (mode) => {
     if (mode !== state.mode) markupRef?.deselect();
+    if (mode !== 'movephoto' && state.movePhotoId) {
+      state.movePhotoId = null;
+      pinsEl.querySelector('.pin-moving')?.classList.remove('pin-moving');
+    }
     state.mode = mode;
-    canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place' || mode === 'photo');
+    canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place' || mode === 'photo' || mode === 'movephoto');
     photoBtn.classList.toggle('btn-active', mode === 'photo');
     canvas.classList.toggle('mode-draw', mode === 'draw');
     markupBar.classList.toggle('hidden', mode !== 'draw');
@@ -256,12 +261,25 @@ export async function renderViewer(view, ctx, sheetId, params) {
     else if (mode === 'place') {
       const t = ctx.tasks.find((x) => x.id === state.placeTaskId);
       showHint(`Toca el plano para ubicar la tarea #${t?.number ?? ''}`);
-    } else showHint('');
+    } else if (mode === 'movephoto') showHint('Toca el nuevo punto de la foto o arrástrala', 'Cancelar');
+    else showHint('');
   };
-  const showHint = (text) => {
+  const showHint = (text, action = '') => {
     hint.textContent = text;
+    hint.classList.toggle('hint-action', !!action);
+    if (action) {
+      // Botón dentro del aviso (p. ej. cancelar el movimiento de una foto)
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm';
+      btn.textContent = action;
+      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      btn.addEventListener('click', () => setMode('view'));
+      hint.append(' ', btn);
+    }
     hint.classList.toggle('hidden', !text);
   };
+
 
   // Actualiza sólo los pines (y anotaciones) cuando cambia algo desde el panel lateral u otro usuario.
   ctx.onTaskChanged = async () => {
@@ -453,8 +471,21 @@ export async function renderViewer(view, ctx, sheetId, params) {
       markup.deselect();
     }
     const tool = drawTool();
+    const photoPinEl = state.mode === 'view' && pointers.size === 1 ? e.target.closest('[data-photo-pin]') : null;
+    // Pulsación larga sobre una foto del plano: menú para verla, moverla o eliminarla
+    if (photoPinEl && canEdit(ctx.project.id)) {
+      const start = { x: e.clientX, y: e.clientY };
+      pressStart = start;
+      longPress = setTimeout(() => {
+        if (pointers.size !== 1 || !gesture || gesture.moved || gesture.type !== 'pan') return;
+        gesture.handled = true; // al levantar el dedo no se abre el visor
+        navigator.vibrate?.(15);
+        const doc = photoPins.find((x) => x.id === photoPinEl.dataset.photoPin);
+        if (doc) openPhotoMenu(doc);
+      }, LONG_PRESS_MS);
+    }
     // Pulsación larga sobre una anotación: seleccionarla
-    if (pointers.size === 1 && canTouchMarkups() && tool !== 'eraser') {
+    else if (pointers.size === 1 && canTouchMarkups() && tool !== 'eraser') {
       const start = { x: e.clientX, y: e.clientY };
       pressStart = start;
       longPress = setTimeout(() => {
@@ -500,7 +531,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (gesture.type === 'pan') {
       if (!gesture.moved && Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) > TAP_TOLERANCE) gesture.moved = true;
       if (!gesture.moved) return;
-      if ((gesture.pinId || gesture.photoId) && state.mode === 'view' && canEdit(ctx.project.id)) {
+      // Pines de tareas: se arrastran directamente. Fotos: solo la que se está moviendo (desde su menú)
+      const draggable = (gesture.pinId && state.mode === 'view') || (gesture.photoId && state.mode === 'movephoto' && gesture.photoId === state.movePhotoId);
+      if (draggable && canEdit(ctx.project.id)) {
         // Arrastrar un pin para reubicar la tarea
         const p = toPlan(e.clientX, e.clientY);
         gesture.pinEl.style.left = `${Math.min(1, Math.max(0, p.x)) * W}px`;
@@ -553,15 +586,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (g?.type === 'erase') return;
     if (!g || e.type === 'pointercancel') return;
 
-    if (g.dragging && g.photoId) {
-      const doc = photoPins.find((x) => x.id === g.photoId);
-      const p = toPlan(e.clientX, e.clientY);
-      doc.points = [[Math.min(1, Math.max(0, p.x)), Math.min(1, Math.max(0, p.y))]];
-      await db.put('markups', doc);
-      toast('Foto reubicada');
-      drawPins();
-      return;
-    }
+    if (g.handled) return; // la pulsación larga ya abrió el menú
+    if (g.dragging && g.photoId) return movePhotoTo(g.photoId, toPlan(e.clientX, e.clientY));
     if (g.dragging) {
       const task = ctx.tasks.find((t) => t.id === g.pinId);
       const p = toPlan(e.clientX, e.clientY);
@@ -598,6 +624,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
         drawPins();
       }
       return;
+    }
+    if (state.mode === 'movephoto') {
+      if (!inside(p)) return toast('Toca dentro del plano', 'error');
+      return movePhotoTo(state.movePhotoId, p);
     }
     if (state.mode === 'view' && g.photoId) {
       const doc = photoPins.find((x) => x.id === g.photoId);
@@ -658,6 +688,33 @@ export async function renderViewer(view, ctx, sheetId, params) {
     e.currentTarget.classList.toggle('active', state.photosVisible);
     drawPins();
   };
+  async function movePhotoTo(id, p) {
+    const doc = photoPins.find((x) => x.id === id);
+    setMode('view');
+    if (!doc) return drawPins();
+    doc.points = [[Math.min(1, Math.max(0, p.x)), Math.min(1, Math.max(0, p.y))]];
+    await db.put('markups', doc);
+    toast('Foto movida');
+    drawPins();
+  }
+
+  function openPhotoMenu(doc) {
+    photoPinMenu(doc, {
+      view: () => showPhotos(doc),
+      move: () => {
+        setMode('movephoto');
+        state.movePhotoId = doc.id;
+        drawPins();
+      },
+      remove: async () => {
+        if (await deletePhotoPin(ctx, doc)) {
+          await reloadPhotos();
+          drawPins();
+        }
+      },
+    });
+  }
+
   function showPhotos(doc) {
     openPhotoViewer(ctx, doc, {
       canEdit: canEdit(ctx.project.id),

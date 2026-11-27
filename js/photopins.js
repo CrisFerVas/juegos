@@ -77,6 +77,45 @@ export async function addPhotoPin(ctx, sheet, point) {
  * Visor de fotos a pantalla completa con deslizamiento entre fotos.
  * `actions`: { canEdit, onChange(), onCreateTask(pin, photoIds) }
  */
+const ICON_EYE = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_MOVE = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
+
+/** Menú de una foto del plano (pulsación larga): ver, mover o eliminar. */
+export function photoPinMenu(pin, { view, move, remove }) {
+  const n = pin.photoIds.length;
+  const { el, close } = modal({
+    title: pin.caption || (n > 1 ? `${n} fotos` : 'Foto'),
+    sheet: true,
+    body: `
+      <div class="photo-source">
+        <button type="button" class="source-btn" data-act="view">${ICON_EYE}<span><strong>Ver ${n > 1 ? 'fotos' : 'foto'}</strong><small>Abrir, anotar o añadir más</small></span></button>
+        <button type="button" class="source-btn" data-act="move">${ICON_MOVE}<span><strong>Mover</strong><small>Toca el nuevo punto en el plano</small></span></button>
+        <button type="button" class="source-btn source-danger" data-act="remove">${ICON_TRASH}<span><strong>Eliminar</strong><small>${n > 1 ? `Borra el punto y sus ${n} fotos` : 'Borra el punto y su foto'}</small></span></button>
+      </div>`,
+  });
+  const acts = { view, move, remove };
+  el.querySelectorAll('[data-act]').forEach((b) =>
+    b.addEventListener('click', () => {
+      close();
+      acts[b.dataset.act]?.();
+    })
+  );
+}
+
+/** Elimina un punto de fotos con sus fotos y anotaciones, tras confirmar. Devuelve true si se eliminó. */
+export async function deletePhotoPin(ctx, pin) {
+  const n = pin.photoIds.length;
+  if (!(await confirmDialog(n > 1 ? `¿Eliminar este punto y sus ${n} fotos?` : '¿Eliminar esta foto del plano?'))) return false;
+  await db.del('markups', pin.id);
+  for (const id of pin.photoIds) {
+    await deleteFile(id);
+    await deletePhotoMarkups(ctx.project.id, id);
+  }
+  toast(n > 1 ? 'Fotos eliminadas' : 'Foto eliminada');
+  return true;
+}
+
 export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTask }) {
   let index = 0;
   let current = null; // foto montada (con anotaciones)
@@ -170,15 +209,8 @@ export async function openPhotoViewer(ctx, pin, { canEdit, onChange, onCreateTas
       onChange?.();
     });
     root.querySelector('[data-pv=delete-all]')?.addEventListener('click', async () => {
-      const n = pin.photoIds.length;
-      if (!(await confirmDialog(`¿Eliminar este punto y sus ${n} foto(s)?`))) return;
-      await db.del('markups', pin.id);
-      for (const id of pin.photoIds) {
-        await deleteFile(id);
-        await deletePhotoMarkups(ctx.project.id, id);
-      }
+      if (!(await deletePhotoPin(ctx, pin))) return;
       close();
-      toast('Fotos eliminadas');
       onChange?.();
     });
   };
