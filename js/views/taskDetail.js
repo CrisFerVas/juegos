@@ -1,5 +1,5 @@
 import { db, STATUSES, statusOf, createTask, saveTask, saveFile, fileUrl, deleteFile, isOverdue, uid } from '../db.js';
-import { esc, modal, toast, confirmDialog, fmtDateTime, choosePhotos, userName } from '../ui.js';
+import { esc, modal, toast, confirmDialog, fmtDateTime, choosePhotos, userName, trackOverlay } from '../ui.js';
 import { savePhotos } from '../media.js';
 import { mountAnnotatedPhoto, openPhotoAnnotator, deletePhotoMarkups } from '../photoannotate.js';
 import { canEdit } from '../sync.js';
@@ -95,6 +95,7 @@ export async function openTaskDrawer(ctx, taskId) {
     drawer.className = 'drawer';
     document.body.appendChild(drawer);
     document.body.classList.add('drawer-open');
+    trackOverlay(drawer, closeTaskDrawer);
   }
   drawer.dataset.task = task.id;
   await renderDrawer(ctx, task);

@@ -93,6 +93,12 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     añade pellizco, doble toque, arrastrar para desplazar con zoom, deslizar para pasar de foto (solo sin zoom)
     y botones −/100%/+. En PC: **Ctrl + rueda** amplía (también el pellizco del touchpad, que llega como
     wheel con ctrlKey); la rueda sin Ctrl desplaza la foto ampliada (`photoWheel`, también en el editor).
+20. Botón/gesto **Atrás** del móvil: cierra la capa de arriba (diálogos, visor de fotos, editor de anotaciones,
+    cámara, ficha de tarea) en vez de cambiar de pantalla. `trackOverlay(el, close)` en `ui.js` hace
+    `pushState` con `{ ovl: id }` (ids crecientes desde `Date.now()`); en `popstate` se cierran las capas con
+    id mayor que la entrada a la que se vuelve y se saltan entradas de capas ya cerradas. Si la capa se cierra
+    desde la app (detectado con MutationObserver), se hace `history.back()` solo si su entrada sigue siendo la
+    actual. Cámara: Atrás conserva las fotos hechas. Editor: Atrás = «Listo».
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
@@ -119,6 +125,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 - Cámara simulada de Chromium (`--use-fake-device-for-media-stream`): `getPhotoCapabilities` dice 1920×1080 pero
   `takePhoto` da 3840×2160; por eso la etiqueta de Mpx usa el mayor de ambos y luego el tamaño real.
 - pdf-lib usa nombres propios en sus enumeraciones (`TextRenderingMode.Outline`, no `Stroke`).
+- Toda capa nueva que tape la pantalla debe registrarse con `trackOverlay` (los `modal()` ya lo hacen).
 - Pruebas de pellizco en Playwright: usar CDP `Input.dispatchTouchEvent` con varios `touchPoints`
   (genera eventos pointer reales; los `PointerEvent` sintéticos fallan en `setPointerCapture`).
 - Las pruebas end-to-end (Playwright) se escribieron en el directorio temporal de la sesión, **no están en el repo**;

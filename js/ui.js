@@ -50,6 +50,7 @@ export function modal({ title, body, submitLabel = 'Guardar', onSubmit, wide = f
     </div>`;
   root.appendChild(wrap);
   const close = () => wrap.remove();
+  trackOverlay(wrap, close);
   // En pantallas táctiles, el "clic" que sigue al toque que abrió el diálogo no debe cerrarlo
   const openedAt = performance.now();
   wrap.addEventListener('click', (e) => {
@@ -293,3 +294,51 @@ function cameraFallback() {
     obs.observe(document.getElementById('modal-root'), { childList: true });
   });
 }
+
+// ---------- Botón «Atrás» del móvil ----------
+// Cada capa que se abre encima de la pantalla (diálogo, visor de fotos, cámara, editor, ficha de tarea)
+// añade una entrada al historial con su identificador. Al pulsar Atrás (botón o gesto del sistema) se
+// cierran las capas abiertas después de la entrada a la que se vuelve, en lugar de cambiar de pantalla.
+// Si una capa se cierra desde la app, se retira su entrada; las entradas sobrantes se saltan solas.
+const overlays = [];
+let overlaySeq = Date.now(); // creciente también entre recargas (el historial las conserva)
+
+/** Registra una capa: `close()` debe cerrarla. Se da por cerrada cuando `el` sale del documento. */
+export function trackOverlay(el, close) {
+  const entry = { el, close, id: ++overlaySeq, href: location.href, done: false };
+  overlays.push(entry);
+  try {
+    history.pushState({ ...(history.state || {}), ovl: entry.id }, '', location.href);
+  } catch {
+    /* historial no disponible (p. ej. dentro de un marco restringido) */
+  }
+  return entry;
+}
+
+function releaseOverlay(entry, viaBack = false) {
+  if (entry.done) return;
+  entry.done = true;
+  overlays.splice(overlays.indexOf(entry), 1);
+  if (viaBack) return;
+  // Cerrada desde la app: se quita su entrada si sigue siendo la actual (si entretanto se navegó
+  // o se abrió otra capa, queda como sobrante y se salta al volver atrás).
+  setTimeout(() => {
+    if (location.href === entry.href && history.state?.ovl === entry.id) history.back();
+  }, 0);
+}
+
+window.addEventListener('popstate', (e) => {
+  const at = e.state?.ovl || 0;
+  // Se cierran las capas abiertas después de la entrada a la que se ha vuelto (de arriba abajo)
+  for (const o of [...overlays].reverse()) {
+    if (o.id <= at) break;
+    releaseOverlay(o, true);
+    o.close();
+  }
+  // Entrada de una capa que ya no está abierta: se sigue hacia atrás sin hacer nada visible
+  if (at && !overlays.some((o) => o.id === at)) history.back();
+});
+
+new MutationObserver(() => {
+  for (const o of [...overlays]) if (!o.el.isConnected) releaseOverlay(o);
+}).observe(document.body, { childList: true, subtree: true });

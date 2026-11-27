@@ -2,7 +2,7 @@
 // Usa getUserMedia (requiere https). Si el navegador o el entorno la bloquean, devuelve null
 // para que se ofrezca la cámara del sistema o la galería.
 
-import { esc } from './ui.js';
+import { esc, trackOverlay } from './ui.js';
 
 export const cameraSupported = () => !!(navigator.mediaDevices?.getUserMedia && window.isSecureContext);
 
@@ -64,6 +64,8 @@ export async function openCamera() {
         <button type="button" class="camera-done" data-cam="done" disabled>Listo</button>
       </div>`;
     document.body.appendChild(el);
+    // Atrás del móvil: cierra la cámara conservando las fotos ya hechas
+    trackOverlay(el, () => finish(shots.map((s) => s.file)));
     const video = el.querySelector('video');
     video.srcObject = stream;
     video.addEventListener('loadedmetadata', () => refresh());

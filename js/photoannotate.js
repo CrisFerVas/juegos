@@ -2,7 +2,7 @@
 // Las anotaciones de una foto son documentos "markups" con sheetId = 'photo:<id del archivo>'.
 
 import { db, fileUrl, uid } from './db.js';
-import { toast } from './ui.js';
+import { toast, trackOverlay } from './ui.js';
 import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from './markup.js';
 
 export const photoKey = (fileId) => `photo:${fileId}`;
@@ -318,15 +318,21 @@ export function openPhotoAnnotator(ctx, fileId) {
     onTap(zval, () => view.resetZoom());
     area.addEventListener('wheel', photoWheel(view), { passive: false });
 
-    onTap(el.querySelector('#pe-done'), () => {
+    let closed = false;
+    const closeEditor = () => {
+      if (closed) return;
+      closed = true;
       layer.deselect();
       view.destroy();
       // Se oculta y se retira un instante después: así absorbe el "clic" que sigue al toque
       // y no cierra por error el visor que hay debajo.
       el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
       setTimeout(() => el.remove(), 400);
       resolve();
-    });
+    };
+    onTap(el.querySelector('#pe-done'), closeEditor);
+    trackOverlay(el, closeEditor); // Atrás del móvil = «Listo» (las anotaciones ya están guardadas)
 
     // ---------- Gestos ----------
     // Un dedo: dibujar / editar. Dos dedos: zoom y desplazamiento (cancela el trazo en curso).
