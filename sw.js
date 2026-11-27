@@ -1,5 +1,7 @@
-// Service worker: permite usar la app sin conexión (los datos ya viven en IndexedDB).
-const CACHE = 'obraplan-v16';
+// Service worker: permite usar la app sin conexión (los datos ya viven en IndexedDB)
+// y muestra los avisos de tareas pendientes (sincronización periódica en segundo plano).
+importScripts('js/reminders-core.js');
+const CACHE = 'obraplan-v17';
 const SHELL = [
   './',
   'index.html',
@@ -14,6 +16,8 @@ const SHELL = [
   'js/markup.js',
   'js/exportplan.js',
   'js/folders.js',
+  'js/reminders.js',
+  'js/reminders-core.js',
   'js/compare.js',
   'js/photopins.js',
   'js/camera.js',
@@ -41,7 +45,7 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k.startsWith('obraplan-v')).map((k) => caches.delete(k)))).then(() => self.clients.claim())
   );
 });
 
@@ -64,5 +68,26 @@ self.addEventListener('fetch', (e) => {
         return res;
       })
       .catch(() => caches.match(request).then((r) => r || (request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
+  );
+});
+
+// ---------- Avisos de tareas ----------
+const BASE = new URL('./', self.location.href).href;
+
+// Chrome (app instalada) despierta al service worker de vez en cuando para comprobar si toca avisar
+self.addEventListener('periodicsync', (e) => {
+  if (e.tag === 'obraplan-reminders') e.waitUntil(self.ObraReminders.check(self.registration, BASE));
+});
+
+// Al tocar un aviso: abrir (o enfocar) la app en la tarea
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || BASE;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const win = list.find((c) => c.url.startsWith(BASE));
+      if (win) return win.focus().then((w) => (w || win).navigate(url)).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    })
   );
 });

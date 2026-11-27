@@ -12,7 +12,8 @@ import { renderSettings } from './views/settings.js';
 import { renderForms } from './views/forms.js';
 import { renderFormDetail } from './views/formDetail.js';
 import { renderTemplateEditor } from './views/templateEditor.js';
-import { closeTaskDrawer, refreshTaskDrawer } from './views/taskDetail.js';
+import { closeTaskDrawer, refreshTaskDrawer, openTaskDrawer } from './views/taskDetail.js';
+import { start as startReminders } from './reminders.js';
 
 const app = document.getElementById('app');
 
@@ -188,7 +189,12 @@ async function route() {
   const renderers = {
     dashboard: () => renderDashboard(view, ctx),
     plans: () => (rest[0] ? renderViewer(view, ctx, rest[0], new URLSearchParams(query)) : renderPlans(view, ctx, new URLSearchParams(query))),
-    tasks: () => renderTasks(view, ctx),
+    tasks: async () => {
+      await renderTasks(view, ctx);
+      // Enlace directo a una tarea (p. ej. desde un aviso): #/p/:id/tasks?task=<id>
+      const taskId = new URLSearchParams(query).get('task');
+      if (taskId && ctx.tasks.some((t) => t.id === taskId)) openTaskDrawer(ctx, taskId);
+    },
     forms: () =>
       rest[0] === 'templates' && rest[1] ? renderTemplateEditor(view, ctx, rest[1]) : rest[0] ? renderFormDetail(view, ctx, rest[0]) : renderForms(view, ctx),
     team: () => renderTeam(view, ctx),
@@ -219,6 +225,7 @@ async function boot() {
   });
   window.addEventListener('hashchange', route);
   route();
+  startReminders();
 }
 
 function showLogin(message) {

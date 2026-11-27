@@ -2,6 +2,9 @@ import { db, exportProject, deleteProject } from '../db.js';
 import { esc, toast, confirmDialog, download, userName, setUserName } from '../ui.js';
 import { session, isAdmin, logout } from '../sync.js';
 import { photoQuality, setPhotoQuality } from '../media.js';
+import {
+  remindersSupported, permission, getReminderSettings, saveReminderSettings, enableReminders, testReminder, reminderPlan, slotsFor, fmtMin,
+} from '../reminders.js';
 
 export function renderSettings(view, ctx) {
   ctx.onTaskChanged = null;
@@ -52,6 +55,11 @@ export function renderSettings(view, ctx) {
         <button class="btn btn-primary">Guardar</button>
       </form>`}
 
+      <section class="card" id="reminders-card">
+        <h3>Avisos de tareas pendientes</h3>
+        <div id="reminders-body"><p class="muted small">Cargando...</p></div>
+      </section>
+
       <section class="card" id="photo-quality">
         <h3>Calidad de las fotos</h3>
         <p class="muted small">Se aplica a las fotos que hagas o subas desde este dispositivo.</p>
@@ -99,6 +107,8 @@ export function renderSettings(view, ctx) {
     setUserName(v);
     toast('Nombre guardado');
   });
+  renderReminders(view.querySelector('#reminders-body'), ctx);
+
   const qCard = view.querySelector('#photo-quality');
   const qHelp = () => {
     qCard.querySelector('#photo-quality-help').textContent = photoQuality() === 'original'
@@ -133,5 +143,64 @@ export function renderSettings(view, ctx) {
     await deleteProject(p.id);
     toast('Proyecto eliminado');
     location.hash = '#/';
+  });
+}
+
+// ---------- Avisos de tareas ----------
+const HOURS = Array.from({ length: 17 }, (_, i) => i + 5); // 5:00 a 21:00
+
+async function renderReminders(box, ctx) {
+  const cfg = await getReminderSettings();
+  const perm = permission();
+  const on = cfg.enabled && perm === 'granted';
+  const server = session.mode === 'server';
+  const p = reminderPlan(ctx.tasks.map((t) => ({ ...t, projectName: ctx.project.name })), cfg);
+  const times = (lvl) => slotsFor(lvl, cfg).map(fmtMin).join(' · ');
+  const hourSel = (name, val) => `<select name="${name}">${HOURS.map((h) => `<option value="${h}" ${h === cfg[name] ? 'selected' : ''}>${h}:00</option>`).join('')}</select>`;
+  box.innerHTML = `
+    <p class="muted small">Recordatorios de las tareas sin completar: <strong>urgentes 4 veces al día</strong> y de
+      <strong>prioridad media 2 veces al día</strong>, en horario laboral. Una tarea pasa a urgente cuando
+      <strong>falta 1 día o menos</strong> para su fecha límite (o ya está vencida). Las de prioridad baja no avisan.</p>
+    ${!remindersSupported() ? '<p class="text-danger small">Este navegador no admite notificaciones.</p>'
+      : perm === 'denied' ? '<p class="text-danger small">Las notificaciones están bloqueadas para esta web. Actívalas en los ajustes del navegador (candado de la barra de direcciones › Permisos › Notificaciones) y vuelve aquí.</p>'
+      : on ? `<p class="small"><span class="pill pill-on">Activados</span> en este dispositivo.</p>`
+      : `<button type="button" class="btn btn-primary" id="rem-enable">🔔 Activar avisos</button>`}
+    <form id="rem-form" class="rem-form">
+      <div class="row2">
+        <label class="field"><span>Desde</span>${hourSel('start', cfg.start)}</label>
+        <label class="field"><span>Hasta</span>${hourSel('end', cfg.end)}</label>
+      </div>
+      <label class="check-label"><input type="checkbox" name="saturday" ${cfg.saturday ? 'checked' : ''} /> Avisar también los sábados</label>
+      <label class="check-label"><input type="checkbox" name="sunday" ${cfg.sunday ? 'checked' : ''} /> Avisar también los domingos</label>
+      ${server ? `<label class="check-label"><input type="checkbox" name="onlyMine" ${cfg.onlyMine ? 'checked' : ''} /> Solo tareas asignadas a mí (y sin asignar)</label>` : ''}
+    </form>
+    <div class="rem-plan small">
+      <div><span class="dot" style="background:#dc2626"></span><strong>Urgentes</strong> (${times('urgent')}): ${p.urgent.length} tarea(s) en este proyecto${p.urgent.some((x) => x.escalated) ? `, ${p.urgent.filter((x) => x.escalated).length} por fecha límite` : ''}</div>
+      <div><span class="dot" style="background:#ea580c"></span><strong>Prioridad media</strong> (${times('medium')}): ${p.medium.length} tarea(s)</div>
+      ${!p.workday ? '<div class="muted">Hoy no es día laborable: no hay avisos.</div>' : ''}
+    </div>
+    ${on ? '<div class="actions-row"><button type="button" class="btn btn-sm" id="rem-test">Probar aviso</button><button type="button" class="btn btn-sm" id="rem-off">Desactivar</button></div>' : ''}
+    <p class="muted small">Sin servidor, los avisos salen de este dispositivo: llegan con la app abierta o en segundo plano y,
+      si la <strong>instalas</strong> (menú ⋮ de Chrome › Instalar app), también con ella cerrada, aunque entonces Android
+      decide cuándo comprobar y pueden retrasarse. Al abrir la app se avisa de lo que tocó hoy.</p>`;
+
+  box.querySelector('#rem-enable')?.addEventListener('click', async () => {
+    const res = await enableReminders();
+    if (res === 'granted') toast('Avisos activados');
+    else if (res === 'denied') toast('Has bloqueado las notificaciones', 'error');
+    renderReminders(box, ctx);
+  });
+  box.querySelector('#rem-off')?.addEventListener('click', async () => {
+    await saveReminderSettings({ enabled: false });
+    toast('Avisos desactivados');
+    renderReminders(box, ctx);
+  });
+  box.querySelector('#rem-test')?.addEventListener('click', () => testReminder().catch(() => toast('No se pudo mostrar el aviso', 'error')));
+  box.querySelector('#rem-form').addEventListener('change', async (e) => {
+    const f = e.currentTarget;
+    let start = Number(f.start.value), end = Number(f.end.value);
+    if (end <= start) end = Math.min(21, start + 1);
+    await saveReminderSettings({ start, end, saturday: f.saturday.checked, sunday: f.sunday.checked, ...(f.onlyMine ? { onlyMine: f.onlyMine.checked } : {}) });
+    renderReminders(box, ctx);
   });
 }

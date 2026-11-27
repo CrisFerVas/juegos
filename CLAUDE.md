@@ -50,6 +50,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/signature.js` | Firma con el dedo |
 | `js/exportplan.js` | Descarga de planos en PDF con anotaciones/mediciones/tareas en vectorial (pdf-lib 1.17.1, cdnjs) |
 | `js/folders.js` | Carpetas y subcarpetas de planos (rutas `A/B/C` en `sheet.folder`; vacías en el almacén `folders`) |
+| `js/reminders-core.js` | Reglas y horario de avisos de tareas; script clásico (`self.ObraReminders`) usado por la app y por `sw.js` (`importScripts`) |
+| `js/reminders.js` | Avisos en la app: permiso, ajustes, comprobación cada minuto, sincronización periódica |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
 
 ## Funcionalidades hechas (en orden)
@@ -99,10 +101,19 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     id mayor que la entrada a la que se vuelve y se saltan entradas de capas ya cerradas. Si la capa se cierra
     desde la app (detectado con MutationObserver), se hace `history.back()` solo si su entrada sigue siendo la
     actual. Cámara: Atrás conserva las fotos hechas. Editor: Atrás = «Listo».
+21. Avisos de tareas pendientes (notificaciones del sistema). Alta = urgente: 4/día repartidos en el horario
+    (8:00 · 10:20 · 12:40 · 15:00 por defecto); media: 2/día (9:00 · 13:00); baja: ninguno. Cualquier tarea
+    pendiente pasa a urgente si falta ≤ 1 día para `dueDate` o está vencida (no cambia su prioridad guardada).
+    Lunes a viernes (sábado/domingo opcionales). Ajustes › Avisos de tareas (por dispositivo; horario, días,
+    «solo asignadas a mí» en modo equipo por email del miembro). Config y última comprobación en Cache API
+    (`obraplan-reminders`, compartida con el SW; `sw.js` ya no borra cachés que no empiecen por `obraplan-v`).
+    **Sin servidor push**: avisa con la app abierta/en segundo plano (cada minuto), al reabrirla (lo pendiente
+    de hoy, una vez por tarea) y, con la app instalada en Chrome Android, por `periodicsync` (frecuencia que
+    decide el navegador, poco fiable). Aviso → `#/p/:id/tasks?task=<id>` abre la ficha de la tarea.
 
 ## Pendiente / ideas
 - RFI, presupuestos y horas por tarea; diagrama de Gantt.
-- Avisos (email/push) y recuperación de contraseña (requiere servicio de correo y app publicada).
+- Avisos fiables con la app cerrada: Web Push desde el servidor (VAPID) cuando se publique; email; recuperación de contraseña.
 - Publicar el servidor (Render/Railway/Fly.io o VPS con disco persistente) cuando el usuario quiera modo equipo real.
 
 ## Preferencias del usuario

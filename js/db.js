@@ -8,6 +8,9 @@ export const STORES = ['projects', 'members', 'sheets', 'tasks', 'files', 'marku
 
 let dbPromise;
 
+/** Nombre de la base de datos local en uso (lo necesita el service worker para los avisos). */
+export const currentDBName = () => dbName;
+
 /** Cambia la base de datos local (una por usuario en modo servidor). Debe llamarse antes de usarla. */
 export function configureDB(name) {
   if (name === dbName) return;
