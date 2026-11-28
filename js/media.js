@@ -88,6 +88,17 @@ async function thumbFrom(source, w, h, max = 480) {
  * - Imagen: se conserva el archivo original sin recomprimir.
  * Devuelve { pdf?: Blob, sheets: [{ name, blob, thumb, width, height, pdfPage? }] }
  */
+/** Número de páginas de un PDF (0 si no es PDF). */
+export const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+export async function pdfPageCount(file) {
+  if (!isPdf(file)) return 0;
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const n = pdf.numPages;
+  await pdf.destroy();
+  return n;
+}
+
 export async function fileToSheets(file, onProgress = () => {}) {
   const base = file.name.replace(/\.[^.]+$/, '');
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {

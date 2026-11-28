@@ -34,6 +34,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
   const src = await fileUrl(sheet.fileId);
   const W = sheet.width, H = sheet.height;
   const versions = [...(sheet.versions || [])].sort((a, b) => b.version - a.version);
+  // Documento de varias páginas (PDF que se mantuvo junto al subirlo): se pasa de página con ‹ ›
+  const docSiblings = sheet.docId ? ctx.sheets.filter((s) => s.docId === sheet.docId).sort((a, b) => (a.docPage || 0) - (b.docPage || 0)) : [];
+  const pageIdx = docSiblings.findIndex((s) => s.id === sheet.id);
+  const pageHref = (i) => `#/p/${ctx.project.id}/plans/${docSiblings[i].id}`;
   const vDate = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric' });
   // Zoom máximo (píxeles de pantalla por píxel de la imagen base). En PDF se redibuja en vectorial,
   // así que se puede ampliar mucho más sin perder nitidez.
@@ -96,6 +100,12 @@ export async function renderViewer(view, ctx, sheetId, params) {
             </div>
             <button class="rail-btn rail-toggle" id="rail-toggle" title="Plegar la barra" aria-label="Plegar o desplegar la barra de herramientas" aria-expanded="true">${icon('chevronDown')}</button>
           </div>
+          ${docSiblings.length > 1 ? `
+          <nav class="page-nav" aria-label="Páginas del documento">
+            ${pageIdx > 0 ? `<a class="page-nav-btn" href="${pageHref(pageIdx - 1)}" aria-label="Página anterior">${icon('chevronRight')}</a>` : '<span class="page-nav-btn off"></span>'}
+            <span class="page-nav-label">Pág. ${pageIdx + 1} / ${docSiblings.length}</span>
+            ${pageIdx < docSiblings.length - 1 ? `<a class="page-nav-btn" href="${pageHref(pageIdx + 1)}" aria-label="Página siguiente">${icon('chevronRight')}</a>` : '<span class="page-nav-btn off"></span>'}
+          </nav>` : ''}
           <button class="version-chip" id="version-chip" ${versions.length ? '' : 'disabled'} title="${versions.length ? 'Comparar con versiones anteriores' : 'Versión actual del plano'}">
             <span>v${sheet.version || 1}${sheet.uploadedAt || sheet.createdAt ? ` · ${vDate.format(sheet.uploadedAt || sheet.createdAt)}` : ''}</span>${versions.length ? icon('chevronUp', 18) : ''}
           </button>
@@ -850,7 +860,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   };
   try { if (localStorage.getItem('obraplan.railCollapsed') === '1') setRailCollapsed(true); } catch { /* sin almacenamiento */ }
   railToggle.onclick = () => setRailCollapsed(!viewRail.classList.contains('collapsed'));
-  for (const el of [viewRail, view.querySelector('#version-chip')]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  for (const el of [viewRail, view.querySelector('#version-chip'), view.querySelector('.page-nav')]) el?.addEventListener('pointerdown', (e) => e.stopPropagation());
   view.querySelector('#toggle-list').onclick = () => {
     state.listOpen = !state.listOpen;
     drawPins();
@@ -1138,7 +1148,7 @@ function sheetOptions(ctx, selectedId) {
     if (!groups.has(f)) groups.set(f, []);
     groups.get(f).push(s);
   }
-  const opt = (s) => `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)}</option>`;
+  const opt = (s) => `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.docId ? `${s.docName} · pág. ${s.docPage}` : s.name)}</option>`;
   if (groups.size === 1 && groups.has('')) return ctx.sheets.map(opt).join('');
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b, 'es', { numeric: true }))

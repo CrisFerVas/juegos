@@ -1023,3 +1023,27 @@ a.folder-card.folder-row { display: flex; }
   font: 500 1rem var(--font); cursor: pointer;
 }
 .folder-add:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Documentos de varias páginas */
+.upload-files { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.upload-files li { overflow-wrap: anywhere; }
+.pdf-choice { margin: 8px 0 0; padding: 10px; border: 1px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pdf-choice.invalid { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 40%, transparent); }
+.pdf-choice legend { font-weight: 600; font-size: .9rem; padding: 0 4px; }
+.radio-card { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.radio-card:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.radio-card input { margin-top: 3px; flex: none; }
+.radio-card span { display: flex; flex-direction: column; gap: 2px; }
+.radio-card small { color: var(--muted); font-size: .8rem; }
+.doc-card .sheet-thumb { box-shadow: 4px -4px 0 -1px var(--surface-2), 4px -4px 0 0 var(--border); margin: 6px 6px 0 0; border-radius: 4px 4px 0 0; }
+.doc-pages { position: absolute; left: 6px; bottom: 6px; display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 99px; background: rgba(20, 22, 26, .82); color: #fff; font-size: .72rem; font-weight: 600; }
+.page-nav {
+  position: absolute; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 4;
+  display: flex; align-items: center; height: 40px; border-radius: 8px; background: var(--bar); color: var(--bar-text); box-shadow: 0 3px 12px rgba(0, 0, 0, .35);
+}
+.page-nav-btn { width: 44px; height: 40px; display: grid; place-items: center; color: inherit; }
+.page-nav-btn:first-child svg { transform: rotate(180deg); }
+.page-nav-btn.off { opacity: 0; pointer-events: none; }
+.page-nav-label { font: 500 .9rem var(--font); padding: 0 4px; white-space: nowrap; }
+.viewer-canvas.mode-draw .page-nav { display: none; }
+@media (max-width: 900px) { .page-nav { left: auto; right: 66px; transform: none; } }

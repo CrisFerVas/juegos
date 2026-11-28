@@ -203,6 +203,13 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     sección por defecto `plans` en `app.js` (también para `#/p/:id` sin sección, p. ej. tras unirse con una invitación).
 33. Crear carpeta a la vista en Planos (el usuario no encontraba la opción del botón +): recuadro «Nueva carpeta» al final de
     la lista de carpetas (`#add-folder`) y botón de carpeta junto al buscador también en el móvil (`#new-folder`).
+34. PDF de varias páginas: al subirlo, `uploadDialog` cuenta las páginas (`pdfPageCount` en `media.js`) y, por cada PDF
+    con más de una, muestra un aviso con dos opciones obligatorias (`mode-<i>`): **separar** (un plano por página, como
+    antes) o **mantener en un solo documento**. Documento = las páginas siguen siendo `sheets` independientes (tareas,
+    anotaciones, escala y versiones por página) con `docId`, `docName` y `docPage`. En Planos se muestran como una
+    tarjeta (`docCard`, «N págs.»; `docPages(ctx, docId)`, `countPlans` cuenta cada documento una vez); su ⋮ abre
+    `docDialog` (renombrar, mover todas, editar una página, **separar** —quita `docId/docName/docPage`— o eliminar todo con
+    `deleteSheet`). En el visor, `.page-nav` (‹ Pág. 2 / 5 ›) enlaza con las páginas hermanas; oculto al anotar.
 
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de

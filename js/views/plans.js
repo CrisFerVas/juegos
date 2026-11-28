@@ -2,7 +2,7 @@ import { db, saveFile, deleteFile, fileUrl, uid, statusOf } from '../db.js';
 import { esc, modal, toast, confirmDialog, pickFiles, userName, trackOverlay } from '../ui.js';
 import { icon } from '../icons.js';
 import { canEdit } from '../sync.js';
-import { fileToSheets } from '../media.js';
+import { fileToSheets, pdfPageCount } from '../media.js';
 import { openExportDialog } from '../exportplan.js';
 import {
   SUGGESTED_FOLDERS, allFolders, childFolders, sheetsIn, normPath, parentOf, baseName, cleanName, isInside, prettyPath,
@@ -49,7 +49,8 @@ export async function renderPlans(view, ctx, params = new URLSearchParams()) {
   const shown = searching
     ? ctx.sheets.filter((s) => s.name.toLowerCase().includes(q) || (s.folder || '').toLowerCase().includes(q))
     : ctx.sheets.filter((s) => { const f = normPath(s.folder); return !f || visibleFolder(f); });
-  const thumbs = Object.fromEntries(await Promise.all(shown.map(async (s) => [s.id, await fileUrl(s.thumbId || s.fileId)])));
+  const thumbSheets = [...new Set(shown.map((s) => (s.docId ? docPages(ctx, s.docId)[0] : s)))];
+  const thumbs = Object.fromEntries(await Promise.all(thumbSheets.map(async (s) => [s.id, await fileUrl(s.thumbId || s.fileId)])));
 
   const sheetCard = (s) => {
     const st = tasks.filter((t) => t.sheetId === s.id);
@@ -66,9 +67,38 @@ export async function renderPlans(view, ctx, params = new URLSearchParams()) {
         </div>
       </article>`;
   };
-  const sheetGrid = (list) => (list.length ? `<div class="sheet-grid">${list.map(sheetCard).join('')}</div>` : '');
+  const docCard = (pagesOf) => {
+    const first = pagesOf[0];
+    const st = tasks.filter((t) => pagesOf.some((p) => p.id === t.sheetId));
+    const open = st.filter((t) => statusOf(t.status).open).length;
+    return `
+      <article class="sheet-card doc-card">
+        <a href="#/p/${project.id}/plans/${first.id}" class="sheet-thumb"><img src="${thumbs[first.id]}" alt="" loading="lazy" />${open ? `<span class="sheet-badge" title="${open} tarea(s) abierta(s)">${open}</span>` : ''}<span class="doc-pages">${icon('layers', 14)} ${pagesOf.length} págs.</span></a>
+        <div class="sheet-meta">
+          <a href="#/p/${project.id}/plans/${first.id}" class="sheet-name">
+            <strong title="${esc(first.docName)}">${esc(first.docName)}</strong>
+            <small class="muted">${searching ? `${esc(prettyPath(normPath(first.folder)))} · ` : ''}Documento · ${st.length} tarea(s)</small>
+          </a>
+          <button class="icon-btn icon-btn-sm write" data-doc="${first.docId}" aria-label="Opciones del documento ${esc(first.docName)}">${icon('more', 18)}</button>
+        </div>
+      </article>`;
+  };
+  // Las páginas de un mismo documento se muestran juntas como un solo elemento
+  const sheetGrid = (list) => {
+    if (!list.length) return '';
+    const seen = new Set();
+    const items = [];
+    for (const s of list) {
+      if (!s.docId) items.push(sheetCard(s));
+      else if (!seen.has(s.docId)) {
+        seen.add(s.docId);
+        items.push(docCard(docPages(ctx, s.docId)));
+      }
+    }
+    return `<div class="sheet-grid">${items.join('')}</div>`;
+  };
   const folderCard = (p) => {
-    const n = sheetsIn(ctx, p, true).length;
+    const n = countPlans(sheetsIn(ctx, p, true));
     const subs = childFolders(ctx, p);
     const isOpen = opened.has(p);
     const empty = !n && !subs.length;
@@ -206,7 +236,73 @@ export async function renderPlans(view, ctx, params = new URLSearchParams()) {
 
   view.querySelector('#export-pdf')?.addEventListener('click', () => openExportDialog(ctx, ctx.sheets, { choose: true }));
   view.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => editSheet(ctx, ctx.sheet(b.dataset.edit))));
+  view.querySelectorAll('[data-doc]').forEach((b) => b.addEventListener('click', () => docDialog(ctx, b.dataset.doc)));
   view.querySelectorAll('[data-folder]').forEach((b) => b.addEventListener('click', () => folderActions(ctx, b.dataset.folder, pickAndUpload)));
+}
+
+/** Páginas de un documento (PDF de varias páginas que se mantiene junto), en orden. */
+export const docPages = (ctx, docId) => ctx.sheets.filter((s) => s.docId === docId).sort((a, b) => (a.docPage || 0) - (b.docPage || 0));
+/** Número de planos de una lista contando cada documento una sola vez. */
+const countPlans = (list) => new Set(list.map((s) => s.docId || s.id)).size;
+
+/** Opciones de un documento de varias páginas. */
+function docDialog(ctx, docId) {
+  const pagesOf = docPages(ctx, docId);
+  if (!pagesOf.length) return;
+  const first = pagesOf[0];
+  const { el, close } = modal({
+    title: 'Documento',
+    body: `
+      <label class="field"><span>Nombre *</span><input name="name" required value="${esc(first.docName)}" /></label>
+      ${folderPickerHTML(ctx, normPath(first.folder))}
+      <div class="field"><span>Páginas (${pagesOf.length})</span>
+        <ul class="version-list">
+          ${pagesOf.map((p, i) => `
+            <li><span>${i + 1}. ${esc(p.name)}</span>
+              <span class="version-actions">
+                <a class="btn btn-sm" href="#/p/${ctx.project.id}/plans/${p.id}">Abrir</a>
+                <button type="button" class="btn btn-sm" data-page="${p.id}">Editar</button>
+              </span></li>`).join('')}
+        </ul>
+        <small class="muted">Cada página conserva sus tareas, anotaciones, escala y versiones.</small>
+      </div>
+      <hr />
+      <div class="row-gap">
+        <button type="button" class="btn btn-sm" id="split-doc">Separar en ${pagesOf.length} planos individuales</button>
+        <button type="button" class="btn btn-danger btn-sm" id="del-doc">Eliminar documento</button>
+      </div>`,
+    onSubmit: async (v) => {
+      const name = v.name.trim();
+      if (!name) return false;
+      const folder = folderFromForm(v);
+      if (folder) await createFolder(ctx, folder);
+      for (const p of pagesOf) await db.put('sheets', { ...p, docName: name, folder });
+      toast('Documento actualizado');
+      ctx.rerender();
+    },
+  });
+  el.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => {
+    close();
+    editSheet(ctx, ctx.sheet(b.dataset.page));
+  }));
+  el.querySelector('#split-doc').addEventListener('click', async () => {
+    if (!(await confirmDialog(`¿Separar «${first.docName}» en ${pagesOf.length} planos individuales? Cada página aparecerá por separado en la lista.`, { okLabel: 'Separar', danger: false }))) return;
+    for (const p of pagesOf) {
+      const { docId: _d, docName: _n, docPage: _p, ...rest } = p;
+      await db.put('sheets', rest);
+    }
+    close();
+    toast(`${pagesOf.length} planos separados`);
+    ctx.rerender();
+  });
+  el.querySelector('#del-doc').addEventListener('click', async () => {
+    const linked = ctx.tasks.filter((t) => pagesOf.some((p) => p.id === t.sheetId)).length;
+    if (!(await confirmDialog(`¿Eliminar el documento «${first.docName}» y sus ${pagesOf.length} páginas?${linked ? ` Las ${linked} tarea(s) vinculadas se conservarán pero sin ubicación en plano.` : ''}`))) return;
+    for (const p of pagesOf) await deleteSheet(ctx, p);
+    close();
+    toast('Documento eliminado');
+    ctx.rerender();
+  });
 }
 
 /** Menú de acciones de una carpeta (⋮). */
@@ -216,7 +312,7 @@ function folderActions(ctx, path, pickAndUpload) {
   const items = [
     editable && { icon: 'upload', label: 'Subir planos aquí', run: () => pickAndUpload(path) },
     editable && { icon: 'folderPlus', label: 'Nueva subcarpeta', run: () => newFolderDialog(ctx, path) },
-    n && { icon: 'download', label: `Descargar PDF (${n} plano${n === 1 ? '' : 's'})`, run: () => openExportDialog(ctx, sheetsIn(ctx, path, true), { choose: true }) },
+    n && { icon: 'download', label: `Descargar PDF (${n} página${n === 1 ? '' : 's'})`, run: () => openExportDialog(ctx, sheetsIn(ctx, path, true), { choose: true }) },
     editable && { icon: 'edit', label: 'Renombrar, mover o eliminar', run: () => editFolderDialog(ctx, path, '') },
   ].filter(Boolean);
   if (!items.length) return toast('No hay acciones disponibles para esta carpeta');
@@ -323,27 +419,44 @@ function editFolderDialog(ctx, path, current) {
 }
 
 function uploadDialog(ctx, files, current = '') {
-  modal({
+  const { el } = modal({
     title: 'Subir planos',
     body: `
-      <p class="muted small">${files.map((f) => esc(f.name)).join('<br>')}</p>
+      <ul class="upload-files">${files.map((f, i) => `<li data-file="${i}"><strong>${esc(f.name)}</strong> <span class="muted small" data-pages></span><div data-choice></div></li>`).join('')}</ul>
       ${folderPickerHTML(ctx, current)}
-      <p class="muted small">Cada página de un PDF se convierte en un plano independiente. Se conserva el archivo original para verlo con toda su calidad al hacer zoom.</p>
+      <p class="muted small">Se conserva el PDF original para verlo con toda su calidad al hacer zoom.</p>
       <div id="up-status" class="muted small"></div>`,
     submitLabel: 'Subir',
     onSubmit: async (v, form) => {
+      // Cada PDF con varias páginas necesita su opción: separar o mantener como un documento
+      const missing = files.findIndex((f, i) => pages[i] > 1 && !v[`mode-${i}`]);
+      if (pages.includes(undefined)) {
+        toast('Espera a que se compruebe cuántos planos tiene cada PDF', 'error');
+        return false;
+      }
+      if (missing >= 0) {
+        const box = form.querySelector(`[data-file="${missing}"] .pdf-choice`);
+        box.classList.add('invalid');
+        box.scrollIntoView({ block: 'center' });
+        toast(`Elige qué hacer con «${files[missing].name}»`, 'error');
+        return false;
+      }
       const status = form.querySelector('#up-status');
       form.querySelector('[type=submit]').disabled = true;
       let count = 0;
+      let docs = 0;
       const folder = folderFromForm(v);
       if (folder) await createFolder(ctx, folder);
-      for (const file of files) {
+      for (const [fi, file] of files.entries()) {
         try {
-          const { pdf, sheets: pages } = await fileToSheets(file, (i, n) => (status.textContent = `Procesando ${file.name}: página ${i} de ${n}...`));
+          const { pdf, sheets: list } = await fileToSheets(file, (i, n) => (status.textContent = `Procesando ${file.name}: página ${i} de ${n}...`));
           status.textContent = `Guardando ${file.name}...`;
           // El PDF original se guarda una vez y lo comparten todas sus páginas.
           const pdfFileId = pdf ? await saveFile(ctx.project.id, pdf, file.name) : '';
-          for (const p of pages) {
+          // «Mantener como un documento»: las páginas comparten docId y se muestran como un solo elemento
+          const doc = list.length > 1 && v[`mode-${fi}`] === 'doc' ? { docId: uid(), docName: file.name.replace(/\.[^.]+$/, '') } : null;
+          if (doc) docs++;
+          for (const p of list) {
             await db.put('sheets', {
               id: uid(),
               projectId: ctx.project.id,
@@ -357,6 +470,7 @@ function uploadDialog(ctx, files, current = '') {
               pdfFileId,
               pdfPage: p.pdfPage || null,
               pageWidthMm: p.pageWidthMm || null,
+              ...(doc ? { ...doc, docPage: p.pdfPage } : {}),
               uploadedAt: Date.now(),
               uploadedBy: userName(),
               createdAt: Date.now(),
@@ -367,9 +481,33 @@ function uploadDialog(ctx, files, current = '') {
           toast(err.message || `Error con ${file.name}`, 'error');
         }
       }
-      if (count) toast(`${count} plano(s) añadido(s)`);
+      if (count) toast(docs ? `${count} página(s) añadida(s) · ${docs} documento(s) de varias páginas` : `${count} plano(s) añadido(s)`);
       ctx.rerender();
     },
+  });
+  // Se cuentan las páginas de cada PDF; si tiene varias, se avisa y se pregunta qué hacer con ese archivo
+  const pages = files.map(() => undefined);
+  files.forEach(async (file, i) => {
+    const li = el.querySelector(`[data-file="${i}"]`);
+    const info = li.querySelector('[data-pages]');
+    if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') info.textContent = '· comprobando páginas...';
+    try {
+      pages[i] = await pdfPageCount(file);
+    } catch {
+      pages[i] = 0; // se avisará al procesarlo
+    }
+    info.textContent = pages[i] > 1 ? `· ${pages[i]} páginas` : pages[i] === 1 ? '· 1 página' : '';
+    if (pages[i] > 1) {
+      li.querySelector('[data-choice]').innerHTML = `
+        <fieldset class="pdf-choice">
+          <legend>⚠ Este PDF contiene ${pages[i]} planos. ¿Qué quieres hacer?</legend>
+          <label class="radio-card"><input type="radio" name="mode-${i}" value="split" />
+            <span><strong>Separar en ${pages[i]} planos individuales</strong><small>Cada página aparece como un plano propio en la lista.</small></span></label>
+          <label class="radio-card"><input type="radio" name="mode-${i}" value="doc" />
+            <span><strong>Mantener en un solo documento</strong><small>Un único elemento en la lista; dentro pasas de página con ‹ ›. Se puede separar después.</small></span></label>
+        </fieldset>`;
+      li.querySelectorAll('input[type=radio]').forEach((r) => r.addEventListener('change', () => li.querySelector('.pdf-choice').classList.remove('invalid')));
+    }
   });
 }
 
@@ -377,6 +515,23 @@ function uploadDialog(ctx, files, current = '') {
 const VERSION_FIELDS = ['version', 'fileId', 'thumbId', 'pdfFileId', 'pdfPage', 'pageWidthMm', 'width', 'height', 'calibration', 'uploadedAt', 'uploadedBy'];
 const pickVersion = (sheet) => Object.fromEntries(VERSION_FIELDS.map((k) => [k, sheet[k] ?? null]));
 const dateFmt = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/** Elimina un plano con sus versiones, anotaciones y fotos; sus tareas quedan sin ubicación. */
+async function deleteSheet(ctx, sheet) {
+  for (const t of ctx.tasks.filter((x) => x.sheetId === sheet.id)) {
+    t.sheetId = '';
+    t.x = t.y = null;
+    await db.put('tasks', t);
+  }
+  for (const v of [pickVersion(sheet), ...(sheet.versions || [])]) await deleteVersionFiles(ctx, v, sheet.id);
+  for (const m of await db.byProject('markups', ctx.project.id)) {
+    if (m.sheetId !== sheet.id) continue;
+    for (const id of m.photoIds || []) await deleteFile(id); // fotos colocadas en el plano
+    await db.del('markups', m.id);
+  }
+  await db.del('sheets', sheet.id);
+  ctx.sheets = ctx.sheets.filter((s) => s.id !== sheet.id); // para que el PDF compartido se libere con la última página
+}
 
 /** Borra los archivos de una versión (el PDF sólo si nadie más lo usa). */
 async function deleteVersionFiles(ctx, v, sheetId) {
@@ -425,18 +580,7 @@ function editSheet(ctx, sheet) {
       ? `¿Eliminar "${sheet.name}" y todas sus versiones? Las ${linked.length} tarea(s) vinculadas se conservarán pero sin ubicación en plano.`
       : `¿Eliminar "${sheet.name}" y todas sus versiones?`;
     if (!(await confirmDialog(msg))) return;
-    for (const t of linked) {
-      t.sheetId = '';
-      t.x = t.y = null;
-      await db.put('tasks', t);
-    }
-    for (const v of [pickVersion(sheet), ...versions]) await deleteVersionFiles(ctx, v, sheet.id);
-    for (const m of await db.byProject('markups', ctx.project.id)) {
-      if (m.sheetId !== sheet.id) continue;
-      for (const id of m.photoIds || []) await deleteFile(id); // fotos colocadas en el plano
-      await db.del('markups', m.id);
-    }
-    await db.del('sheets', sheet.id);
+    await deleteSheet(ctx, sheet);
     close();
     toast('Plano eliminado');
     ctx.rerender();
