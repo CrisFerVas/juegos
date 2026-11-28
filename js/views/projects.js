@@ -37,7 +37,7 @@ export async function renderProjects(view) {
         ${projects.map((p) => {
           const s = stats(p.id);
           return `
-          <a class="card project-card" href="#/p/${p.id}/dashboard">
+          <a class="card project-card" href="#/p/${p.id}/plans">
             <div class="project-card-top">
               <span class="project-badge">${esc((p.code || p.name).slice(0, 3).toUpperCase())}</span>
               <div>
@@ -67,7 +67,7 @@ export async function renderProjects(view) {
     e.target.disabled = true;
     const p = await seedDemo();
     toast('Proyecto de ejemplo creado');
-    location.hash = `#/p/${p.id}/dashboard`;
+    location.hash = `#/p/${p.id}/plans`;
   });
   view.querySelector('#import').addEventListener('click', async () => {
     const [file] = await pickFiles({ accept: '.json,application/json' });
@@ -75,7 +75,7 @@ export async function renderProjects(view) {
     try {
       const p = await importProject(JSON.parse(await file.text()));
       toast('Proyecto importado');
-      location.hash = `#/p/${p.id}/dashboard`;
+      location.hash = `#/p/${p.id}/plans`;
     } catch (err) {
       toast(err.message || 'No se pudo importar', 'error');
     }
@@ -95,7 +95,7 @@ function projectForm() {
     submitLabel: 'Crear proyecto',
     onSubmit: async (v) => {
       const p = await createProject(v);
-      location.hash = `#/p/${p.id}/dashboard`;
+      location.hash = `#/p/${p.id}/plans`;
     },
   });
 }

@@ -199,6 +199,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     ✓; abajo `.markup-ctx` con escala, Terminar y botones de recorte. Los botones conservan `data-tool/data-color/
     data-width` e ids, así que la lógica de `markup.js` no cambió. **Cuidado**: el `pointerdown` en captura del lienzo
     (cierra menús) debe ignorar los toques sobre las barras, o se pierde el clic en el desplegable.
+32. Al abrir un proyecto se entra en **Planos** (no en Panel): enlaces de la lista de proyectos a `#/p/:id/plans` y
+    sección por defecto `plans` en `app.js` (también para `#/p/:id` sin sección, p. ej. tras unirse con una invitación).
 
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de

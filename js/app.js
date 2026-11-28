@@ -174,7 +174,7 @@ async function route() {
     return;
   }
 
-  const [, projectId, section = 'dashboard', ...rest] = parts;
+  const [, projectId, section = 'plans', ...rest] = parts;
   const ctx = await loadContext(projectId);
   if (token !== renderToken) return;
   if (!ctx) {
@@ -250,7 +250,7 @@ async function route() {
     team: () => renderTeam(view, ctx),
     settings: () => renderSettings(view, ctx),
   };
-  const render = renderers[section] || renderers.dashboard;
+  const render = renderers[section] || renderers.plans;
   ctx.rerender = async () => {
     await ctx.reload();
     await render();
