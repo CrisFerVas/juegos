@@ -8,6 +8,16 @@ export const cameraSupported = () => !!(navigator.mediaDevices?.getUserMedia && 
 
 // Cámara elegida y resolución máxima de cada cámara del teléfono (se detecta una vez y se recuerda)
 const CAM_KEY = 'obraplan.cameraId';
+const FLASH_KEY = 'obraplan.flashMode';
+
+// Flash: apagado, al disparar o siempre encendido (linterna)
+const bolt = '<path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12z"/>';
+const flashIcon = (d) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+export const FLASH_MODES = [
+  { id: 'off', label: 'Flash apagado', icon: flashIcon(`${bolt}<path d="M3 3l18 18"/>`) },
+  { id: 'flash', label: 'Flash al hacer la foto', icon: flashIcon(bolt.replace('<path', '<path fill="currentColor"')) },
+  { id: 'torch', label: 'Flash siempre encendido (linterna)', icon: flashIcon('<path d="M8 2h8v4l-2 4v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V10L8 6z"/><path d="M8 6h8M12 14v2"/><path d="M3.5 4.5L5 6M20.5 4.5L19 6M2 10h2M20 10h2" stroke-width="1.6"/>') },
+];
 const CAPS_KEY = 'obraplan.cameraCaps';
 const load = (k, d) => {
   try {
@@ -63,6 +73,8 @@ export async function openCamera() {
   let currentId = null; // cámara que se está usando
   // Zoom: el de la propia cámara (Chrome en Android) o, si no lo ofrece, zoom digital (recorte)
   const zoom = { hw: false, min: 1, max: 8, value: 1 };
+  // Flash: qué ofrece la cámara actual (la frontal normalmente no tiene)
+  const flash = { mode: load(FLASH_KEY, 'off'), torch: false, fill: false };
   const start = async () => {
     stream?.getTracks().forEach((t) => t.stop());
     // Vídeo 4:3 (formato del sensor) a la mayor resolución que dé la cámara: se usa si no hay ImageCapture
@@ -87,16 +99,31 @@ export async function openCamera() {
     const zc = track.getCapabilities?.().zoom;
     if (zc && zc.max > zc.min) Object.assign(zoom, { hw: true, min: zc.min, max: zc.max, value: track.getSettings?.().zoom || zc.min });
     else Object.assign(zoom, { hw: false, min: 1, max: 8, value: 1 });
+    flash.torch = !!track.getCapabilities?.().torch;
+    flash.fill = false;
     if ('ImageCapture' in window) {
       try {
         capture = new window.ImageCapture(track);
         const caps = await capture.getPhotoCapabilities();
         if (caps?.imageWidth?.max && caps?.imageHeight?.max) photoSize = { width: caps.imageWidth.max, height: caps.imageHeight.max };
+        flash.fill = (caps?.fillLightMode || []).includes('flash');
       } catch {
         capture = null;
       }
     }
+    await setTorch(flash.mode === 'torch');
   };
+  /** Enciende o apaga la linterna (si la cámara la tiene). */
+  async function setTorch(on) {
+    const track = stream?.getVideoTracks()[0];
+    if (!track || !flash.torch) return false;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: on }] });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
     await start();
   } catch {
@@ -118,6 +145,9 @@ export async function openCamera() {
         <button type="button" class="camera-btn" data-cam="close" aria-label="Cerrar la cámara">✕</button>
         <button type="button" class="camera-count" data-cam="res" aria-live="polite" aria-haspopup="true" title="Elegir cámara y resolución"></button>
         ${cams.length > 1 ? `<button type="button" class="camera-btn" data-cam="flip" aria-label="Cambiar de cámara">⟲</button>` : '<span></span>'}
+      </div>
+      <div class="camera-flashbar" role="radiogroup" aria-label="Flash">
+        ${FLASH_MODES.map((m) => `<button type="button" class="camera-flash-btn" role="radio" data-flash="${m.id}" aria-label="${m.label}" title="${m.label}">${m.icon}</button>`).join('')}
       </div>
       <div class="camera-menu hidden" role="menu" aria-label="Cámaras y resolución"></div>
       <button type="button" class="camera-zoom" data-cam="zoom" aria-label="Zoom de la cámara">1×</button>
@@ -144,6 +174,7 @@ export async function openCamera() {
     video.addEventListener('loadedmetadata', () => refresh());
 
     const finish = (files) => {
+      setTorch(false);
       stream?.getTracks().forEach((t) => t.stop());
       if (viewport && viewportBefore != null) viewport.setAttribute('content', viewportBefore);
       el.remove();
@@ -207,6 +238,49 @@ export async function openCamera() {
       zoomBtn.classList.toggle('on', f > 1.05);
     };
     setZoom(zoom.value);
+
+    // ---------- Flash ----------
+    const flashBtns = el.querySelectorAll('[data-flash]');
+    const toast = (msg) => {
+      let t = el.querySelector('.camera-note');
+      if (!t) {
+        t = document.createElement('div');
+        t.className = 'camera-note';
+        el.append(t);
+      }
+      t.textContent = msg;
+      t.classList.add('on');
+      clearTimeout(t._h);
+      t._h = setTimeout(() => t.classList.remove('on'), 2600);
+    };
+    const hasFlash = () => flash.torch || flash.fill;
+    const syncFlash = () => {
+      flashBtns.forEach((b) => {
+        const on = b.dataset.flash === flash.mode;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+        b.classList.toggle('na', b.dataset.flash !== 'off' && !hasFlash());
+      });
+    };
+    flashBtns.forEach((b) =>
+      b.addEventListener('click', async () => {
+        const mode = b.dataset.flash;
+        if (mode !== 'off' && !hasFlash()) {
+          toast(facing === 'user' ? 'La cámara frontal no tiene flash' : 'Esta cámara no permite usar el flash desde el navegador');
+          return;
+        }
+        if (mode === 'torch' && !flash.torch) {
+          toast('Esta cámara no permite dejar el flash encendido');
+          return;
+        }
+        flash.mode = mode;
+        save(FLASH_KEY, mode);
+        await setTorch(mode === 'torch');
+        syncFlash();
+        toast(FLASH_MODES.find((m) => m.id === mode).label);
+      })
+    );
+    syncFlash();
     zoomBtn.addEventListener('click', () => {
       const f = factor(), m = zoom.min || 1;
       const presets = [1, 2, 5].filter((p) => p * m <= zoom.max + 1e-6);
@@ -261,9 +335,22 @@ export async function openCamera() {
     const shutter = el.querySelector('[data-cam=shot]');
     /** Foto a máxima resolución: ImageCapture (sensor completo) o, si no, un fotograma del vídeo. */
     const takeBlob = async () => {
+      // Flash al disparar sin flash de foto en el navegador: se enciende la linterna un momento
+      // (deja que la cámara ajuste la exposición) y se apaga después de la foto.
+      const torchPulse = flash.mode === 'flash' && !(capture && flash.fill) && flash.torch;
+      if (torchPulse && (await setTorch(true))) await new Promise((r) => setTimeout(r, 700));
+      try {
+        return await takeRaw();
+      } finally {
+        if (torchPulse) await setTorch(false);
+        else if (flash.mode === 'torch') await setTorch(true); // algunas cámaras la apagan al hacer la foto
+      }
+    };
+    const takeRaw = async () => {
       if (capture) {
         try {
           const settings = photoSize ? { imageWidth: photoSize.width, imageHeight: photoSize.height } : {};
+          if (flash.fill && flash.mode !== 'torch') settings.fillLightMode = flash.mode === 'flash' ? 'flash' : 'off';
           const blob = await capture.takePhoto(settings).catch(() => capture.takePhoto());
           if (blob?.size) return blob;
         } catch {
@@ -320,6 +407,7 @@ export async function openCamera() {
       video.srcObject = stream;
       lastShot = null;
       setZoom(zoom.value);
+      syncFlash();
       refresh();
       return true;
     };

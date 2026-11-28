@@ -1047,3 +1047,18 @@ a.folder-card.folder-row { display: flex; }
 .page-nav-label { font: 500 .9rem var(--font); padding: 0 4px; white-space: nowrap; }
 .viewer-canvas.mode-draw .page-nav { display: none; }
 @media (max-width: 900px) { .page-nav { left: auto; right: 66px; transform: none; } }
+
+/* Cámara: flash */
+.camera-flashbar {
+  position: absolute; left: 50%; top: calc(76px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 2;
+  display: flex; gap: 4px; padding: 4px; border-radius: 99px; background: rgba(0, 0, 0, .45);
+}
+.camera-flash-btn { width: 46px; height: 46px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #fff; cursor: pointer; }
+.camera-flash-btn.on { background: #facc15; color: #111; }
+.camera-flash-btn.na { opacity: .4; }
+.camera-note {
+  position: absolute; left: 50%; top: calc(136px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 3;
+  padding: 8px 14px; border-radius: 99px; background: rgba(0, 0, 0, .7); color: #fff; font: 500 .88rem var(--font); white-space: nowrap;
+  opacity: 0; transition: opacity .2s; pointer-events: none;
+}
+.camera-note.on { opacity: 1; }
