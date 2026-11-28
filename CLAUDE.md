@@ -232,6 +232,12 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     admite, si no WebM o MP4/VP9). Tarda lo que dura el video (pide `wakeLock`, se puede cancelar). Si ya es ≤ 720p y ligero
     (≤ 3,5 Mbps) se guarda tal cual; si falla, se guarda el original con aviso. Prueba: 1080p60 de 3 MB → 1280×720 a ~30 fps
     de 0,7 MB. Sin historial ↶ ↷ para enlaces y adjuntos.
+37. Sin zoom de página en toda la app (el usuario no quiere que los menús se amplíen): meta viewport con `maximum-scale=1,
+    user-scalable=no` en `index.html`, `touch-action: manipulation` en `html` (sin zoom por doble toque) y `gesturestart`
+    bloqueado para Safari. El zoom queda solo donde la app lo implementa: visor de planos, visores y editor de fotos, y
+    ahora también las **imágenes adjuntas** (`openAttachViewer` usa `mountAnnotatedPhoto(..., { zoomable: true })`).
+    Videos: pantalla completa del reproductor; PDF y otros archivos: «Abrir» en el visor del sistema (con su propio zoom).
+    Nota: si en Android está activado «Forzar zoom» en Accesibilidad de Chrome, el navegador ignora el bloqueo.
 
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de

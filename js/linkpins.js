@@ -8,6 +8,7 @@ import { db, uid, fileUrl, saveFile, deleteFile } from './db.js';
 import { esc, modal, toast, confirmDialog, pickFiles, userName, fmtDateTime } from './ui.js';
 import { icon } from './icons.js';
 import { normPath, prettyPath } from './folders.js';
+import { mountAnnotatedPhoto } from './photoannotate.js';
 import { isVideo, needsCompression, compressVideo, canCompressVideo, MAX_SHORT, FPS } from './video.js';
 
 export const ICON_LINK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>';
@@ -225,7 +226,7 @@ export async function openAttachViewer(ctx, pin, { canEdit, onChange }) {
         const size = meta?.size || meta?.blob?.size;
         const media = !url ? '<p class="muted small">Archivo no disponible en este dispositivo (sin conexión).</p>'
           : type.startsWith('video/') ? `<video src="${url}" controls playsinline preload="metadata"></video>`
-          : type.startsWith('image/') ? `<img src="${url}" alt="" />` : '';
+          : type.startsWith('image/') ? `<div class="att-photo" data-photo="${id}"></div>` : '';
         return `
           <article class="att-item">
             ${media}
@@ -238,6 +239,8 @@ export async function openAttachViewer(ctx, pin, { canEdit, onChange }) {
           </article>`;
       }).join('')}
       ${canEdit ? `<div class="row-gap"><button type="button" class="btn" id="att-add">＋ Añadir archivos</button><button type="button" class="btn btn-danger" id="att-del-all">Eliminar punto</button></div>` : ''}`;
+    // Imágenes con zoom (pellizco, doble toque, Ctrl + rueda), como las fotos del plano
+    root.querySelectorAll('[data-photo]').forEach((box) => mountAnnotatedPhoto(box, ctx, box.dataset.photo, { zoomable: true }));
     root.querySelector('#att-caption')?.addEventListener('change', async (e) => {
       pin.caption = e.target.value.trim();
       await db.put('markups', pin);

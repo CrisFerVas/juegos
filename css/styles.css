@@ -1091,3 +1091,6 @@ a.folder-card.folder-row { display: flex; }
 .att-name strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 10px 0; }
 .progress > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.att-photo { position: relative; height: min(60vh, 520px); background: #000; overflow: hidden; }
+/* Sin retraso ni zoom por doble toque en botones y menús */
+html { touch-action: manipulation; }

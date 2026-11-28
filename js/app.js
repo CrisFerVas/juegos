@@ -352,6 +352,9 @@ function showLogin(message, invite = null) {
 
 boot();
 
+// Safari (iPhone/iPad) ignora user-scalable=no: se bloquea el gesto de ampliar la página
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // updateViaCache 'none': al buscar actualizaciones no se usa la caché del navegador (ni para sw.js ni
   // para los scripts que importa). Se vuelve a comprobar cada vez que se vuelve a la app.
