@@ -210,6 +210,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     tarjeta (`docCard`, «N págs.»; `docPages(ctx, docId)`, `countPlans` cuenta cada documento una vez); su ⋮ abre
     `docDialog` (renombrar, mover todas, editar una página, **separar** —quita `docId/docName/docPage`— o eliminar todo con
     `deleteSheet`). En el visor, `.page-nav` (‹ Pág. 2 / 5 ›) enlaza con las páginas hermanas; oculto al anotar.
+    La pregunta sale **enseguida para todo PDF** y solo se quita si el recuento confirma 1 página (si el recuento falla
+    —p. ej. PDF grande en el móvil— se mantiene; antes, al fallar, se separaba sin preguntar). Opción: «Mantener en un solo archivo».
 
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de

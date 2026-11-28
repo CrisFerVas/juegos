@@ -2,7 +2,7 @@ import { db, saveFile, deleteFile, fileUrl, uid, statusOf } from '../db.js';
 import { esc, modal, toast, confirmDialog, pickFiles, userName, trackOverlay } from '../ui.js';
 import { icon } from '../icons.js';
 import { canEdit } from '../sync.js';
-import { fileToSheets, pdfPageCount } from '../media.js';
+import { fileToSheets, pdfPageCount, isPdf } from '../media.js';
 import { openExportDialog } from '../exportplan.js';
 import {
   SUGGESTED_FOLDERS, allFolders, childFolders, sheetsIn, normPath, parentOf, baseName, cleanName, isInside, prettyPath,
@@ -429,11 +429,8 @@ function uploadDialog(ctx, files, current = '') {
     submitLabel: 'Subir',
     onSubmit: async (v, form) => {
       // Cada PDF con varias páginas necesita su opción: separar o mantener como un documento
-      const missing = files.findIndex((f, i) => pages[i] > 1 && !v[`mode-${i}`]);
-      if (pages.includes(undefined)) {
-        toast('Espera a que se compruebe cuántos planos tiene cada PDF', 'error');
-        return false;
-      }
+      // Se pregunta por todo PDF salvo los que ya se sabe que tienen una sola página
+      const missing = files.findIndex((f, i) => form.querySelector(`[data-file="${i}"] .pdf-choice`) && !v[`mode-${i}`]);
       if (missing >= 0) {
         const box = form.querySelector(`[data-file="${missing}"] .pdf-choice`);
         box.classList.add('invalid');
@@ -485,30 +482,38 @@ function uploadDialog(ctx, files, current = '') {
       ctx.rerender();
     },
   });
-  // Se cuentan las páginas de cada PDF; si tiene varias, se avisa y se pregunta qué hacer con ese archivo
-  const pages = files.map(() => undefined);
+  // Todo PDF muestra la pregunta enseguida (separar o mantener como documento). Luego se cuentan sus páginas:
+  // con una sola página la pregunta desaparece; si no se pueden contar, se mantiene.
+  const choiceHTML = (i, n) => `
+    <fieldset class="pdf-choice">
+      <legend>⚠ ${n > 1 ? `Este PDF contiene ${n} planos.` : 'Si este PDF tiene varios planos:'} ¿Qué quieres hacer?</legend>
+      <label class="radio-card"><input type="radio" name="mode-${i}" value="split" />
+        <span><strong>Separar en ${n > 1 ? `${n} ` : ''}planos individuales</strong><small>Cada página aparece como un plano propio en la lista.</small></span></label>
+      <label class="radio-card"><input type="radio" name="mode-${i}" value="doc" />
+        <span><strong>Mantener en un solo archivo</strong><small>Se conserva como un único documento en la lista; dentro pasas de página con ‹ ›. Se puede separar después.</small></span></label>
+    </fieldset>`;
   files.forEach(async (file, i) => {
+    if (!isPdf(file)) return;
     const li = el.querySelector(`[data-file="${i}"]`);
     const info = li.querySelector('[data-pages]');
-    if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') info.textContent = '· comprobando páginas...';
+    const box = li.querySelector('[data-choice]');
+    info.textContent = '· comprobando páginas...';
+    box.innerHTML = choiceHTML(i, 0);
+    let n = 0;
     try {
-      pages[i] = await pdfPageCount(file);
+      n = await pdfPageCount(file);
     } catch {
-      pages[i] = 0; // se avisará al procesarlo
+      n = 0;
     }
-    info.textContent = pages[i] > 1 ? `· ${pages[i]} páginas` : pages[i] === 1 ? '· 1 página' : '';
-    if (pages[i] > 1) {
-      li.querySelector('[data-choice]').innerHTML = `
-        <fieldset class="pdf-choice">
-          <legend>⚠ Este PDF contiene ${pages[i]} planos. ¿Qué quieres hacer?</legend>
-          <label class="radio-card"><input type="radio" name="mode-${i}" value="split" />
-            <span><strong>Separar en ${pages[i]} planos individuales</strong><small>Cada página aparece como un plano propio en la lista.</small></span></label>
-          <label class="radio-card"><input type="radio" name="mode-${i}" value="doc" />
-            <span><strong>Mantener en un solo documento</strong><small>Un único elemento en la lista; dentro pasas de página con ‹ ›. Se puede separar después.</small></span></label>
-        </fieldset>`;
-      li.querySelectorAll('input[type=radio]').forEach((r) => r.addEventListener('change', () => li.querySelector('.pdf-choice').classList.remove('invalid')));
+    const picked = box.querySelector('input:checked')?.value;
+    info.textContent = n > 1 ? `· ${n} páginas` : n === 1 ? '· 1 página' : '';
+    if (n === 1) box.innerHTML = '';
+    else {
+      box.innerHTML = choiceHTML(i, n);
+      if (picked) box.querySelector(`input[value="${picked}"]`).checked = true;
     }
   });
+  el.addEventListener('change', (e) => e.target.matches('.pdf-choice input') && e.target.closest('.pdf-choice').classList.remove('invalid'));
 }
 
 // Campos que describen el archivo de una versión del plano
