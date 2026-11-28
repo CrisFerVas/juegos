@@ -276,7 +276,7 @@ export function createMarkupLayer({ ctx, sheet, stage, getScale, getCalibration 
 
   async function load() {
     if (edit) return; // no interrumpir una edición en curso
-    items = (await db.byProject('markups', ctx.project.id)).filter((m) => m.sheetId === sheet.id && m.type !== 'photo').sort((a, b) => a.createdAt - b.createdAt);
+    items = (await db.byProject('markups', ctx.project.id)).filter((m) => m.sheetId === sheet.id && !['photo', 'link', 'attach'].includes(m.type)).sort((a, b) => a.createdAt - b.createdAt);
     if (sel) {
       sel = items.find((m) => m.id === sel.id) || null;
       if (!sel) onSelect(null);

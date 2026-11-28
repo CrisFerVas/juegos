@@ -10,6 +10,7 @@ import { openExportDialog } from '../exportplan.js';
 import { normPath, prettyPath } from '../folders.js';
 import { createLoupe } from '../loupe.js';
 import { icon } from '../icons.js';
+import { loadLinkPins, linkPinsHTML, addLinkPin, addAttachPin, openAttachViewer, linkPinMenu, deleteLinkPin, ICON_LINK, ICON_ATTACH } from '../linkpins.js';
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
@@ -49,6 +50,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
     placeTaskId: params.get('place') || null,
     hidden: new Set(),
     photosVisible: true,
+    linksVisible: true,
+    moveLinkId: null,
     listOpen: window.innerWidth > 900,
   };
 
@@ -69,6 +72,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
           <p class="pop-title">Capas</p>
           <div class="pop-chips">
             <button class="chip active" id="filter-photos" style="--c:#3f8cff" title="Mostrar u ocultar las fotos">Fotos</button>
+            <button class="chip active" id="filter-links" style="--c:#f472b6" title="Mostrar u ocultar los enlaces y adjuntos">Enlaces y adjuntos</button>
             <button class="chip active" id="markup-visible" style="--c:#e11d48" title="Ocultar anotaciones" aria-pressed="true">Anotaciones</button>
           </div>
         </div>
@@ -89,6 +93,13 @@ export async function renderViewer(view, ctx, sheetId, params) {
           <div class="tool-rail" id="view-rail" role="toolbar" aria-label="Herramientas del plano">
             <div class="rail-tools">
               <button class="rail-btn write" id="add-mode" title="Crear una tarea en el plano" aria-label="Nueva tarea">${icon('pin')}</button>
+              <div class="rail-group write" data-vgroup="links">
+                <button class="rail-btn" id="links-btn" title="Enlaces y adjuntos" aria-label="Enlaces y adjuntos" aria-expanded="false">${ICON_LINK}</button>
+                <div class="flyout flyout-labeled">
+                  <button class="flyout-item" id="link-mode">${ICON_LINK}<span>Enlace a otro plano</span></button>
+                  <button class="flyout-item" id="attach-mode">${ICON_ATTACH}<span>Adjuntar video o archivo</span></button>
+                </div>
+              </div>
               <button class="rail-btn write" id="photo-mode" title="Añadir fotos en un punto del plano" aria-label="Foto">${icon('camera')}</button>
               <button class="rail-btn write" id="markup-mode" title="Dibujar, escribir y medir sobre el plano" aria-label="Anotar">${icon('pencil')}</button>
               <span class="rail-sep write"></span>
@@ -179,8 +190,13 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   const sheetTasks = () => ctx.tasks.filter((t) => t.sheetId === sheet.id && t.x != null);
   let photoPins = [];
+  let linkPins = [];
+  const reloadLinks = async () => {
+    linkPins = await loadLinkPins(ctx.project.id, sheet.id);
+  };
   const reloadPhotos = async () => {
     photoPins = await loadPhotoPins(ctx.project.id, sheet.id);
+    linkPins = await loadLinkPins(ctx.project.id, sheet.id); // enlaces y adjuntos viven en el mismo almacén
   };
 
   // ---------- Transformación ----------
@@ -240,7 +256,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
         return `<button class="pin ${isOverdue(t) ? 'pin-overdue' : ''} ${t.id === state.placeTaskId ? 'pin-placing' : ''}" data-pin="${t.id}"
           style="left:${t.x * W}px;top:${t.y * H}px;--c:${st.color}" title="#${t.number} ${esc(t.title)}">${t.number}</button>`;
       })
-      .join('') + (state.photosVisible || state.movePhotoId ? photoPinsHTML(photoPins, W, H) : '');
+      .join('') + (state.photosVisible || state.movePhotoId ? photoPinsHTML(photoPins, W, H) : '')
+      + (state.linksVisible || state.moveLinkId ? linkPinsHTML(linkPins, ctx, W, H) : '');
+    if (state.moveLinkId) pinsEl.querySelector(`[data-link-pin="${CSS.escape(state.moveLinkId)}"], [data-attach-pin="${CSS.escape(state.moveLinkId)}"]`)?.classList.add('pin-moving');
     if (state.movePhotoId) pinsEl.querySelector(`[data-photo-pin="${CSS.escape(state.movePhotoId)}"]`)?.classList.add('pin-moving');
     const all = sheetTasks();
     listEl.innerHTML = `
@@ -281,13 +299,15 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   const setMode = (mode) => {
     if (mode !== state.mode) markupRef?.deselect();
+    if (mode !== 'movelink' && state.moveLinkId) state.moveLinkId = null;
     if (mode !== 'movephoto' && state.movePhotoId) {
       state.movePhotoId = null;
       pinsEl.querySelector('.pin-moving')?.classList.remove('pin-moving');
     }
     state.mode = mode;
     if (mode !== 'draw') markupRef?.clipCancel();
-    canvas.classList.toggle('mode-add', mode === 'add' || mode === 'place' || mode === 'photo' || mode === 'movephoto');
+    canvas.classList.toggle('mode-add', ['add', 'place', 'photo', 'movephoto', 'link', 'attach', 'movelink'].includes(mode));
+    view.querySelector('#links-btn').classList.toggle('btn-active', mode === 'link' || mode === 'attach');
     photoBtn.classList.toggle('btn-active', mode === 'photo');
     canvas.classList.toggle('mode-draw', mode === 'draw');
     markupBar.classList.toggle('hidden', mode !== 'draw');
@@ -306,6 +326,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
     closeFlyouts();
     if (mode === 'add') showHint('Toca el plano donde quieres crear la tarea');
     else if (mode === 'photo') showHint('Toca el punto del plano donde tomas la foto');
+    else if (mode === 'link') showHint('Toca el punto del plano donde va el enlace', 'Cancelar');
+    else if (mode === 'attach') showHint('Toca el punto del plano donde adjuntas el video o archivo', 'Cancelar');
+    else if (mode === 'movelink') showHint('Toca el nuevo punto', 'Cancelar');
     else if (mode === 'place') {
       const t = ctx.tasks.find((x) => x.id === state.placeTaskId);
       showHint(`Toca el plano para ubicar la tarea #${t?.number ?? ''}`);
@@ -605,6 +628,16 @@ export async function renderViewer(view, ctx, sheetId, params) {
     }
     const tool = drawTool();
     const photoPinEl = state.mode === 'view' && pointers.size === 1 ? e.target.closest('[data-photo-pin]') : null;
+    const linkPinEl = state.mode === 'view' && pointers.size === 1 ? e.target.closest('[data-link-pin], [data-attach-pin]') : null;
+    if (linkPinEl && canEdit(ctx.project.id)) {
+      longPress = setTimeout(() => {
+        if (pointers.size !== 1 || !gesture || gesture.moved || gesture.type !== 'pan') return;
+        gesture.handled = true;
+        navigator.vibrate?.(15);
+        const doc = linkPins.find((x) => x.id === (linkPinEl.dataset.linkPin || linkPinEl.dataset.attachPin));
+        if (doc) openLinkMenu(doc);
+      }, LONG_PRESS_MS);
+    } else
     // Pulsación larga sobre una foto del plano: menú para verla, moverla o eliminarla
     if (photoPinEl && canEdit(ctx.project.id)) {
       const start = { x: e.clientX, y: e.clientY };
@@ -655,7 +688,8 @@ export async function renderViewer(view, ctx, sheetId, params) {
     if (pointers.size === 2 && gesture?.type === 'draw') markup.cancel();
     if (pointers.size === 1) {
       const pin = e.target.closest('[data-pin], [data-photo-pin]');
-      gesture = { type: 'pan', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, pinId: pin?.dataset.pin, photoId: pin?.dataset.photoPin, pinEl: pin, t0: Date.now() };
+      gesture = { type: 'pan', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, pinId: pin?.dataset.pin, photoId: pin?.dataset.photoPin, pinEl: pin, t0: Date.now(),
+        linkId: e.target.closest('[data-link-pin]')?.dataset.linkPin, attachId: e.target.closest('[data-attach-pin]')?.dataset.attachPin };
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       gesture = { type: 'pinch', dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, moved: true };
@@ -788,6 +822,40 @@ export async function renderViewer(view, ctx, sheetId, params) {
       if (!inside(p)) return toast('Toca dentro del plano', 'error');
       return movePhotoTo(state.movePhotoId, p);
     }
+    if (state.mode === 'link' || state.mode === 'attach') {
+      if (!inside(p)) return toast('Toca dentro del plano', 'error');
+      const mode = state.mode;
+      setMode('view');
+      const saved = mode === 'link' ? await addLinkPin(ctx, sheet, p) : await addAttachPin(ctx, sheet, p);
+      if (saved) {
+        state.linksVisible = true;
+        await reloadLinks();
+        drawPins();
+      }
+      return;
+    }
+    if (state.mode === 'movelink') {
+      if (!inside(p)) return toast('Toca dentro del plano', 'error');
+      const doc = linkPins.find((x) => x.id === state.moveLinkId);
+      setMode('view');
+      if (doc) {
+        doc.points = [[p.x, p.y]];
+        await db.put('markups', doc);
+        toast('Movido');
+      }
+      return drawPins();
+    }
+    if (state.mode === 'view' && g.linkId) {
+      const doc = linkPins.find((x) => x.id === g.linkId);
+      if (doc && ctx.sheet(doc.targetSheetId)) location.hash = `#/p/${ctx.project.id}/plans/${doc.targetSheetId}`;
+      else if (doc) toast('El plano enlazado ya no existe', 'error');
+      return;
+    }
+    if (state.mode === 'view' && g.attachId) {
+      const doc = linkPins.find((x) => x.id === g.attachId);
+      if (doc) showAttachments(doc);
+      return;
+    }
     if (state.mode === 'view' && g.photoId) {
       const doc = photoPins.find((x) => x.id === g.photoId);
       if (doc) showPhotos(doc);
@@ -867,6 +935,28 @@ export async function renderViewer(view, ctx, sheetId, params) {
   };
   addBtn.onclick = () => setMode(state.mode === 'add' ? 'view' : 'add');
   photoBtn.onclick = () => setMode(state.mode === 'photo' ? 'view' : 'photo');
+  // Enlaces y adjuntos: el botón despliega las dos opciones a la izquierda
+  const linksGroup = view.querySelector('[data-vgroup="links"]');
+  view.querySelector('#links-btn').onclick = () => {
+    if (state.mode === 'link' || state.mode === 'attach') return setMode('view');
+    const open = !linksGroup.classList.contains('open');
+    closeFlyouts();
+    linksGroup.classList.toggle('open', open);
+    view.querySelector('#links-btn').setAttribute('aria-expanded', String(open));
+  };
+  view.querySelector('#link-mode').onclick = () => {
+    closeFlyouts();
+    setMode('link');
+  };
+  view.querySelector('#attach-mode').onclick = () => {
+    closeFlyouts();
+    setMode('attach');
+  };
+  view.querySelector('#filter-links').onclick = (e) => {
+    state.linksVisible = !state.linksVisible;
+    e.currentTarget.classList.toggle('active', state.linksVisible);
+    drawPins();
+  };
   view.querySelector('#filter-photos').onclick = (e) => {
     state.photosVisible = !state.photosVisible;
     e.currentTarget.classList.toggle('active', state.photosVisible);
@@ -999,6 +1089,38 @@ export async function renderViewer(view, ctx, sheetId, params) {
     recordPhoto(doc.id, before, doc);
     toast('Foto movida');
     drawPins();
+  }
+
+  function showAttachments(doc) {
+    openAttachViewer(ctx, doc, {
+      canEdit: canEdit(ctx.project.id),
+      onChange: async () => {
+        await reloadLinks();
+        drawPins();
+      },
+    });
+  }
+  function openLinkMenu(doc) {
+    linkPinMenu(doc, {
+      open: () => (doc.type === 'link' ? ctx.sheet(doc.targetSheetId) && (location.hash = `#/p/${ctx.project.id}/plans/${doc.targetSheetId}`) : showAttachments(doc)),
+      retarget: async () => {
+        if (await addLinkPin(ctx, sheet, null, doc)) {
+          await reloadLinks();
+          drawPins();
+        }
+      },
+      move: () => {
+        setMode('movelink');
+        state.moveLinkId = doc.id;
+        drawPins();
+      },
+      remove: async () => {
+        if (await deleteLinkPin(ctx, doc)) {
+          await reloadLinks();
+          drawPins();
+        }
+      },
+    });
   }
 
   function openPhotoMenu(doc) {

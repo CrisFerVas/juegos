@@ -391,7 +391,7 @@ export async function buildSheetsPdf(ctx, sheets, opts = { markups: true, tasks:
     if (opts.markups) {
       const metersPerPx = s.calibration?.metersPerWidth ? s.calibration.metersPerWidth / W : null;
       allMarkups
-        .filter((m) => m.sheetId === s.id && m.type !== 'photo' && m.points?.length)
+        .filter((m) => m.sheetId === s.id && !['photo', 'link', 'attach'].includes(m.type) && m.points?.length)
         .sort((a, b) => a.createdAt - b.createdAt)
         .forEach((m) => painter.withClip(m.clip, W, H, () => paintMarkup(painter, m, W, H, metersPerPx)));
     }

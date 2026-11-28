@@ -57,6 +57,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/views/auth.js`, `js/views/account.js` | Acceso (login/registro/recuperar, invitación) y «Mi cuenta» (`#/account`) |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
 | `js/icons.js` | Iconos SVG de línea por nombre (`icon('pin')`) para menú, barras y visor |
+| `js/linkpins.js` | Enlaces a otros planos (`type:'link'`) y archivos adjuntos (`type:'attach'`) en el plano |
+| `js/video.js` | Reducir videos a 720p / 30 fps (canvas + MediaRecorder) |
 
 ## Funcionalidades hechas (en orden)
 1. App base: proyectos, panel, planos (PDF multipágina/imagen), visor con tareas en plano, lista/tablero,
@@ -218,6 +220,18 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     [{ torch }] })`, si `getCapabilities().torch`) 700 ms antes de la foto y se apaga después. «Siempre»: linterna encendida
     (se vuelve a encender tras cada foto y al cambiar de cámara; se apaga al cerrar). Sin flash (p. ej. frontal) los botones
     se atenúan y avisan. Probado con cámara simulada (no hay flash real en las pruebas): confirmar en el teléfono.
+36. Enlaces y adjuntos en el plano (botón 🔗 de la barra del visor, desplegable «Enlace a otro plano» / «Adjuntar video o
+    archivo»; modos `link`/`attach`/`movelink`). Son markups: `{ type:'link', points, targetSheetId, label }` (punto rosa con
+    el nombre del plano destino, que se lee en vivo; tocar → abre ese plano; si se borró, gris tachado) y `{ type:'attach',
+    points, fileIds, caption }` (clip morado con contador; tocar → `openAttachViewer`: video con reproductor, imágenes, el
+    resto Abrir/Descargar; añadir/quitar archivos). Pulsación larga → `linkPinMenu` (abrir, cambiar destino, mover, eliminar).
+    Capa «Enlaces y adjuntos» en 👁. `markup.js` y `exportplan.js` excluyen `photo`, `link` y `attach` de los dibujos;
+    `deleteSheet` borra también `fileIds`; la importación de copias reasigna `fileIds` y `targetSheetId`.
+    **Videos**: `video.js` los reduce a 720p (lado largo ≤ 1280, corto ≤ 720) y 30 fps antes de guardarlos (lienzo +
+    `canvas.captureStream(30)` + audio por Web Audio sin sonar + `MediaRecorder` a 2,5 Mbps; MP4/H.264 si el navegador lo
+    admite, si no WebM o MP4/VP9). Tarda lo que dura el video (pide `wakeLock`, se puede cancelar). Si ya es ≤ 720p y ligero
+    (≤ 3,5 Mbps) se guarda tal cual; si falla, se guarda el original con aviso. Prueba: 1080p60 de 3 MB → 1280×720 a ~30 fps
+    de 0,7 MB. Sin historial ↶ ↷ para enlaces y adjuntos.
 
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de

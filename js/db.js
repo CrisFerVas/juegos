@@ -332,7 +332,8 @@ export async function importProject(backup) {
   for (const m of backup.markups || []) {
     // Las anotaciones de fotos apuntan a la foto ('photo:<id>'), no a un plano
     const sheetId = String(m.sheetId || '').startsWith('photo:') ? `photo:${remap(m.sheetId.slice(6))}` : remap(m.sheetId);
-    await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId, ...(m.photoIds ? { photoIds: m.photoIds.map(remap) } : {}) });
+    await db.put('markups', { ...m, id: remap(m.id), projectId: pid, sheetId, ...(m.photoIds ? { photoIds: m.photoIds.map(remap) } : {}),
+      ...(m.fileIds ? { fileIds: m.fileIds.map(remap) } : {}), ...(m.targetSheetId ? { targetSheetId: remap(m.targetSheetId) } : {}) });
   }
   for (const f of backup.folders || []) await db.put('folders', { ...f, id: remap(f.id), projectId: pid });
   for (const t of backup.templates || []) await db.put('templates', { ...t, id: remap(t.id), projectId: pid });
