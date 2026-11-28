@@ -43,7 +43,7 @@ export function renderDashboard(view, ctx) {
   view.innerHTML = `
     <div class="page-head">
       <div>
-        <h1>Panel</h1>
+        <h1 class="sec-title">Panel</h1>
         <p class="muted">${esc(project.address || '')}${project.client ? ` · Cliente: ${esc(project.client)}` : ''}</p>
       </div>
       <div class="actions"><button class="btn btn-primary write" id="new-task">+ Nueva tarea</button></div>

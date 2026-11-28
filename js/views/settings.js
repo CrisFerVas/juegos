@@ -1,5 +1,5 @@
 import { db, exportProject, deleteProject } from '../db.js';
-import { esc, toast, confirmDialog, download, userName, setUserName } from '../ui.js';
+import { esc, toast, confirmDialog, download, userName, setUserName, THEMES, getTheme, setTheme } from '../ui.js';
 import { session, isAdmin, logout } from '../sync.js';
 import { photoQuality, setPhotoQuality } from '../media.js';
 import {
@@ -14,7 +14,7 @@ export function renderSettings(view, ctx) {
   const lock = admin ? '' : 'disabled';
   const adminNote = admin ? '' : '<p class="muted small">Solo los administradores pueden cambiar esto.</p>';
   view.innerHTML = `
-    <div class="page-head"><div><h1>Ajustes</h1><p class="muted">Configuración del proyecto y copia de seguridad.</p></div></div>
+    <div class="page-head"><div><h1 class="sec-title">Ajustes</h1><p class="muted">Configuración del proyecto y copia de seguridad.</p></div></div>
 
     <div class="grid settings-grid">
       <form class="card" id="project-form">
@@ -61,6 +61,14 @@ export function renderSettings(view, ctx) {
       <section class="card" id="reminders-card">
         <h3>Avisos de tareas pendientes</h3>
         <div id="reminders-body"><p class="muted small">Cargando...</p></div>
+      </section>
+
+      <section class="card" id="theme-card">
+        <h3>Apariencia</h3>
+        <p class="muted small">Tema de la app en este dispositivo.</p>
+        <div class="seg-choice" role="group" aria-label="Tema">
+          ${THEMES.map((t) => `<button type="button" data-theme-opt="${t.id}" class="${getTheme() === t.id ? 'on' : ''}">${t.label}</button>`).join('')}
+        </div>
       </section>
 
       <section class="card" id="photo-quality">
@@ -130,6 +138,12 @@ export function renderSettings(view, ctx) {
     if (el) el.textContent = v;
   })();
 
+  view.querySelectorAll('[data-theme-opt]').forEach((b) =>
+    b.addEventListener('click', () => {
+      setTheme(b.dataset.themeOpt);
+      view.querySelectorAll('[data-theme-opt]').forEach((x) => x.classList.toggle('on', x === b));
+    })
+  );
   const qCard = view.querySelector('#photo-quality');
   const qHelp = () => {
     qCard.querySelector('#photo-quality-help').textContent = photoQuality() === 'original'

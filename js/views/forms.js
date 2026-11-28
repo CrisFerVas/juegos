@@ -20,7 +20,7 @@ export async function renderForms(view, ctx) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Partes e inspecciones</h1><p class="muted">${forms.length} parte(s) · ${templates.length} plantilla(s)</p></div>
+      <div><h1 class="sec-title">Partes e inspecciones</h1><p class="muted">${forms.length} parte(s) · ${templates.length} plantilla(s)</p></div>
       <div class="actions">
         <div class="seg-toggle" role="group" aria-label="Vista">
           <button class="${state.tab === 'forms' ? 'active' : ''}" data-tab="forms">Partes</button>

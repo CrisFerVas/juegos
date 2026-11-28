@@ -342,3 +342,22 @@ window.addEventListener('popstate', (e) => {
 new MutationObserver(() => {
   for (const o of [...overlays]) if (!o.el.isConnected) releaseOverlay(o);
 }).observe(document.body, { childList: true, subtree: true });
+
+// ---------- Tema (por dispositivo) ----------
+export const THEMES = [{ id: 'dark', label: 'Oscuro' }, { id: 'light', label: 'Claro' }, { id: 'system', label: 'Como el sistema' }];
+export function getTheme() {
+  try {
+    return localStorage.getItem('obraplan.theme') || 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+export function setTheme(theme) {
+  try {
+    localStorage.setItem('obraplan.theme', theme);
+  } catch {
+    /* sin almacenamiento */
+  }
+  if (theme === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+}

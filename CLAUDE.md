@@ -56,6 +56,7 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 | `js/loupe.js` | Lupa al dibujar con el dedo (imagen + lienzo nítido del PDF + anotaciones en vivo con `<use>`) |
 | `js/views/auth.js`, `js/views/account.js` | Acceso (login/registro/recuperar, invitación) y «Mi cuenta» (`#/account`) |
 | `js/views/viewer.js` | Visor de planos: zoom/paneo/pellizco, pines, modos view/add/place/draw/photo |
+| `js/icons.js` | Iconos SVG de línea por nombre (`icon('pin')`) para menú, barras y visor |
 
 ## Funcionalidades hechas (en orden)
 1. App base: proyectos, panel, planos (PDF multipágina/imagen), visor con tareas en plano, lista/tablero,
@@ -177,6 +178,28 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     con sesión acepta y abre el proyecto; en modo local avisa de que necesita el servidor. Un enlace nunca baja un rol.
     Login: ver/ocultar contraseña (`passwordField`/`bindPasswordToggles` en `auth.js`), conserva el email al cambiar de modo.
 
+31. Interfaz al estilo de las apps de obra (referencia: vídeo de Fieldwire del usuario, sin copiar marca ni nombre).
+    **Tema oscuro por defecto** (grises neutros, acento azul `#3f8cff`); Ajustes › Apariencia: Oscuro / Claro / Como el
+    sistema (`localStorage obraplan.theme`, aplicado por un script en `index.html` antes de pintar; `getTheme/setTheme` en
+    `ui.js`). Variables nuevas `--bar`/`--bar-text` (barras siempre oscuras). **Sin barra inferior**: en el móvil, barra
+    superior `.appbar` (☰ + sección + proyecto) y el menú lateral `.sidebar` se desliza (`openDrawer` en `app.js`, cierra con
+    Atrás vía `trackOverlay` sobre `.drawer-scrim`); en escritorio el mismo menú queda fijo. El menú incluye accesos a
+    tareas con número (Mis tareas —solo modo equipo, por email del miembro—, abiertas, vencidas, todas): enlazan a
+    `#/p/:id/tasks?status=…|overdue=1|assignee=…`, que `renderTasks(view, ctx, params)` aplica una vez por enlace.
+    Títulos de sección con `.sec-title` se ocultan en el móvil (ya están en la barra). Botón flotante `.fab` (Proyectos,
+    Planos con menú «Subir planos / Nueva carpeta»).
+    **Planos**: árbol de carpetas desplegables en la misma pantalla (estado en `sessionStorage obraplan.plansOpen.<pid>`);
+    `?f=<ruta>` despliega esa carpeta y sus superiores y se desplaza a ella. ⋮ de carpeta = hoja de acciones (subir aquí,
+    subcarpeta, descargar PDF, renombrar/mover/eliminar). Miniaturas en 2 columnas con globo de tareas abiertas.
+    **Visor**: barra superior oscura (← · selector de plano como título · 👁 capas: estados, fotos, anotaciones · ⋮ lista,
+    comparar, PDF, ajustar). Barra vertical `#view-rail` a la derecha (tarea, foto, anotar, ↶ ↷, zoom solo con ratón,
+    plegar ▾ recordado en `obraplan.railCollapsed`). Chip de versión abajo a la izquierda (abre la comparación). Al anotar,
+    `#markup-bar` es una capa (`.markup-layer`) con la barra `.markup-rail`: mover, grupos con desplegable a la izquierda
+    (`railGroup`: dibujo, formas, medición; muestran la última herramienta del grupo), texto, recortar, color/grosor, ↶ ↷,
+    ✓; abajo `.markup-ctx` con escala, Terminar y botones de recorte. Los botones conservan `data-tool/data-color/
+    data-width` e ids, así que la lógica de `markup.js` no cambió. **Cuidado**: el `pointerdown` en captura del lienzo
+    (cierra menús) debe ignorar los toques sobre las barras, o se pierde el clic en el desplegable.
+
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de
   esa zona, relleno desde el trazo hasta las líneas, cerrar huecos, ignorar textos) y recortar a esa forma.
@@ -197,7 +220,9 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
 - **Clics fantasma en táctil**: tras un toque que abre un diálogo, el clic siguiente puede cerrarlo
   (los diálogos ignoran el fondo 400 ms). Tras un trazo, el primer clic puede perderse: los botones
   críticos responden también a `pointerup` con antiduplicado (inicializar a `-Infinity`, no a 0).
-- Capas del plano (z-index): imagen base < `.hires` < comparación < `.markups` < `.pins`.
+- Capas del plano (z-index): imagen base < `.hires` < comparación < `.markups` < `.pins`. Encima del lienzo: barras
+  `.tool-rail`/`.markup-layer`/`.version-chip` (z 4) y menús de la barra superior (z 10).
+- La clase `.markup-bar` la comparte el editor de fotos (`photoannotate.js`): no cambiarla para el visor.
 - pdf.js 3.11.174 desde cdnjs, worker creado desde un blob. En el contenedor de pruebas cdnjs está bloqueado:
   las pruebas sirven pdf.js local (npm `pdfjs-dist@3.11.174`) y pdf-lib (npm `pdf-lib@1.17.1`) interceptando la URL.
 - En la vista previa de Claude: sin cámara, sin descargas, sin `window.open`/imprimir.

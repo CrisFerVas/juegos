@@ -1,5 +1,7 @@
 import { db } from './db.js';
-import { esc, toast, initials } from './ui.js';
+import { esc, toast, initials, trackOverlay } from './ui.js';
+import { icon } from './icons.js';
+import { statusOf, isOverdue } from './db.js';
 import { session, initSession, onSync, logout, canEdit, roleOf, ROLE_LABELS, syncNow, acceptInvite } from './sync.js';
 import { renderAuth } from './views/auth.js';
 import { renderAccount } from './views/account.js';
@@ -19,13 +21,42 @@ import { start as startReminders } from './reminders.js';
 const app = document.getElementById('app');
 
 const NAV = [
-  { id: 'dashboard', label: 'Panel', icon: '▦' },
-  { id: 'plans', label: 'Planos', icon: '▤' },
-  { id: 'tasks', label: 'Tareas', icon: '☑' },
-  { id: 'forms', label: 'Partes', icon: '📋' },
-  { id: 'team', label: 'Equipo', icon: '👥' },
-  { id: 'settings', label: 'Ajustes', icon: '⚙' },
+  { id: 'dashboard', label: 'Panel', icon: 'dashboard' },
+  { id: 'plans', label: 'Planos', icon: 'plans' },
+  { id: 'tasks', label: 'Tareas', icon: 'tasks' },
+  { id: 'forms', label: 'Partes e inspecciones', short: 'Partes', icon: 'forms' },
+  { id: 'team', label: 'Equipo', icon: 'team' },
+  { id: 'settings', label: 'Ajustes', icon: 'settings' },
 ];
+
+/** Accesos directos a la lista de tareas con un filtro (menú lateral), con su número. */
+function taskShortcuts(ctx) {
+  const open = ctx.tasks.filter((t) => statusOf(t.status).open);
+  const me = session.mode === 'server' && session.user ? ctx.members.find((m) => (m.email || '').toLowerCase() === session.user.email.toLowerCase()) : null;
+  return [
+    me && { id: 'mine', label: 'Mis tareas', icon: 'star', n: open.filter((t) => t.assigneeId === me.id).length, q: `assignee=${me.id}` },
+    { id: 'open', label: 'Tareas abiertas', icon: 'open', n: open.length, q: 'status=open' },
+    { id: 'overdue', label: 'Vencidas', icon: 'alert', n: open.filter(isOverdue).length, q: 'overdue=1' },
+    { id: 'all', label: 'Todas las tareas', icon: 'grid', n: ctx.tasks.length, q: 'status=all' },
+  ].filter(Boolean);
+}
+
+/** Menú lateral: fijo en pantallas grandes; en el móvil se abre con ☰ (y se cierra con Atrás). */
+function openDrawer() {
+  const shell = document.querySelector('.shell');
+  if (!shell || shell.classList.contains('drawer-open')) return;
+  shell.classList.add('drawer-open');
+  const scrim = document.createElement('div');
+  scrim.className = 'drawer-scrim';
+  shell.append(scrim);
+  const close = () => {
+    shell.classList.remove('drawer-open');
+    scrim.remove();
+  };
+  scrim.addEventListener('click', close);
+  shell.querySelector('.sidebar').addEventListener('click', (e) => e.target.closest('a[href]') && close());
+  trackOverlay(scrim, close);
+}
 
 export function navigate(hash) {
   if (location.hash === hash) route();
@@ -155,44 +186,50 @@ async function route() {
   const readonly = !canEdit(projectId);
   document.body.classList.toggle('readonly', readonly);
   const fullBleed = section === 'plans' && rest[0];
+  const shortcuts = taskShortcuts(ctx);
+  const sectionLabel = NAV.find((n) => n.id === section)?.label || '';
   app.innerHTML = `
     <div class="shell ${fullBleed ? 'shell-full' : ''}">
-      <aside class="sidebar">
-        <a class="brand" href="#/"><img src="icons/icon.svg" alt="" /> <span>ObraPlan</span></a>
-        <div class="sidebar-project">
-          <a href="#/" class="muted small">← Proyectos</a>
+      <aside class="sidebar" aria-label="Menú del proyecto">
+        <div class="sidebar-head">
           <strong title="${esc(ctx.project.name)}">${esc(ctx.project.name)}</strong>
-          ${ctx.project.code ? `<span class="muted small">${esc(ctx.project.code)}</span>` : ''}
+          <a href="#/" class="icon-btn" title="Todos los proyectos" aria-label="Todos los proyectos">${icon('home')}</a>
         </div>
         <nav class="nav">
           ${NAV.map((n) => `
-            <a href="#/p/${projectId}/${n.id}" class="nav-item ${section === n.id ? 'active' : ''}">
-              <span class="nav-icon" aria-hidden="true">${n.icon}</span><span>${n.label}</span>
+            <a href="#/p/${projectId}/${n.id}" class="nav-item ${section === n.id && !(n.id === 'tasks' && query) ? 'active' : ''}">
+              <span class="nav-icon">${icon(n.icon)}</span><span>${n.label}</span>
+            </a>`).join('')}
+        </nav>
+        <div class="nav-title">Tareas</div>
+        <nav class="nav">
+          ${shortcuts.map((t) => `
+            <a href="#/p/${projectId}/tasks?${t.q}" class="nav-item ${section === 'tasks' && query === t.q ? 'active' : ''}">
+              <span class="nav-icon">${icon(t.icon)}</span><span>${t.label}</span><span class="nav-count">${t.n}</span>
             </a>`).join('')}
         </nav>
         <div class="sidebar-foot">
           ${session.mode === 'server' ? `<span class="muted small">Tu rol: ${esc(ROLE_LABELS[roleOf(projectId)])}</span>` : ''}
           ${syncBadge()}
           ${userMenu()}
+          <a href="#/" class="nav-item"><span class="nav-icon">${icon('back')}</span><span>Todos los proyectos</span></a>
         </div>
       </aside>
       <main class="content">
         ${fullBleed ? '' : `
-        <header class="mobile-project-bar">
-          <a href="#/" class="mobile-back" aria-label="Volver a la lista de proyectos">‹ Proyectos</a>
-          <strong title="${esc(ctx.project.name)}">${esc(ctx.project.name)}</strong>
+        <header class="appbar">
+          <button class="icon-btn" data-drawer aria-label="Abrir el menú">${icon('menu')}</button>
+          <div class="appbar-title">
+            <strong>${esc(sectionLabel)}</strong>
+            <small title="${esc(ctx.project.name)}">${esc(ctx.project.name)}</small>
+          </div>
           ${syncBadge()}
         </header>`}
         ${readonly ? '<div class="readonly-banner">Solo lectura: eres seguidor de este proyecto. Pide a un administrador que cambie tu rol si necesitas editar.</div>' : ''}
         <div id="view" class="view"></div>
       </main>
-      <nav class="bottom-nav">
-        ${NAV.map((n) => `
-          <a href="#/p/${projectId}/${n.id}" class="${section === n.id ? 'active' : ''}">
-            <span aria-hidden="true">${n.icon}</span><small>${n.label}</small>
-          </a>`).join('')}
-      </nav>
     </div>`;
+  app.querySelector('[data-drawer]')?.addEventListener('click', openDrawer);
 
   bindChrome();
   const view = document.getElementById('view');
@@ -203,7 +240,7 @@ async function route() {
     dashboard: () => renderDashboard(view, ctx),
     plans: () => (rest[0] ? renderViewer(view, ctx, rest[0], new URLSearchParams(query)) : renderPlans(view, ctx, new URLSearchParams(query))),
     tasks: async () => {
-      await renderTasks(view, ctx);
+      await renderTasks(view, ctx, new URLSearchParams(query));
       // Enlace directo a una tarea (p. ej. desde un aviso): #/p/:id/tasks?task=<id>
       const taskId = new URLSearchParams(query).get('task');
       if (taskId && ctx.tasks.some((t) => t.id === taskId)) openTaskDrawer(ctx, taskId);

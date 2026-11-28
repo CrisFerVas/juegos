@@ -1,4 +1,5 @@
 import { db, createProject, createTask, saveFile, importProject, uid, statusOf } from '../db.js';
+import { icon } from '../icons.js';
 import { esc, modal, toast, pickFiles, fmtDateTime, MEMBER_COLORS } from '../ui.js';
 import { demoFloorPlan } from '../media.js';
 import { session, roleOf, ROLE_LABELS } from '../sync.js';
@@ -14,12 +15,12 @@ export async function renderProjects(view) {
   view.innerHTML = `
     <div class="page-head">
       <div>
-        <h1>Proyectos</h1>
+        <h1 class="sec-title">Proyectos</h1>
         <p class="muted">Gestiona planos, tareas y equipos de tus obras.</p>
       </div>
       <div class="actions">
         <button class="btn" id="import">Importar copia</button>
-        <button class="btn btn-primary" id="new">+ Nuevo proyecto</button>
+        <button class="btn btn-primary hide-sm" id="new">+ Nuevo proyecto</button>
       </div>
     </div>
     ${projects.length === 0 ? `
@@ -54,12 +55,14 @@ export async function renderProjects(view) {
       </div>
       <p class="muted small center" style="margin-top:24px">
         <button class="link" id="demo">Cargar proyecto de ejemplo</button>
-      </p>`}
+      </p>
+      <button class="fab mobile-only" id="new-fab" aria-label="Nuevo proyecto">${icon('plus', 28)}</button>`}
   `;
 
   const openNew = () => projectForm();
   view.querySelector('#new')?.addEventListener('click', openNew);
   view.querySelector('#new2')?.addEventListener('click', openNew);
+  view.querySelector('#new-fab')?.addEventListener('click', openNew);
   view.querySelector('#demo')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     const p = await seedDemo();

@@ -40,7 +40,14 @@ function applyFilters(ctx) {
   return list.sort(sorters[filters.sort]);
 }
 
-export function renderTasks(view, ctx) {
+let lastShortcut = null;
+export function renderTasks(view, ctx, params) {
+  // Accesos directos del menú lateral (?status=, ?overdue=1, ?assignee=): se aplican una vez al llegar
+  const shortcut = params ? ['status', 'overdue', 'assignee'].filter((k) => params.has(k)).map((k) => `${k}=${params.get(k)}`).join('&') : '';
+  if (shortcut && shortcut !== lastShortcut) {
+    Object.assign(filters, { q: '', status: params.get('status') || 'open', category: '', assignee: params.get('assignee') || '', sheet: '', overdue: params.get('overdue') === '1' });
+  }
+  if (params) lastShortcut = shortcut;
   ctx.onTaskChanged = null;
   const list = applyFilters(ctx);
   for (const id of [...selected]) if (!ctx.tasks.some((t) => t.id === id)) selected.delete(id);
@@ -48,7 +55,7 @@ export function renderTasks(view, ctx) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Tareas</h1><p class="muted">${list.length} de ${ctx.tasks.length} tareas</p></div>
+      <div><h1 class="sec-title">Tareas</h1><p class="muted">${list.length} de ${ctx.tasks.length} tareas</p></div>
       <div class="actions">
         <div class="seg-toggle" role="group" aria-label="Vista">
           <button class="${filters.mode === 'list' ? 'active' : ''}" data-mode="list">Lista</button>

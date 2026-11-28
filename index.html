@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ObraPlan · Gestión de obra</title>
   <meta name="description" content="Gestión de proyectos de construcción: planos, tareas en plano, listas de pendientes y equipo." />
-  <meta name="theme-color" content="#0f766e" />
+  <meta name="theme-color" content="#2b2e33" />
+  <script>
+    // Tema antes de pintar (evita un destello claro): oscuro por defecto, claro o el del sistema.
+    try { var t = localStorage.getItem('obraplan.theme') || 'dark'; if (t !== 'system') document.documentElement.dataset.theme = t; }
+    catch (e) { document.documentElement.dataset.theme = 'dark'; }
+  </script>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="css/styles.css" />

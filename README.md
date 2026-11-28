@@ -33,6 +33,7 @@ Funciona en el navegador (escritorio, tablet y móvil) de dos maneras:
 | **Ajustes** | Datos del proyecto, categorías personalizadas, nombre del usuario, copia de seguridad completa (.json con planos y fotos) y borrado del proyecto. |
 | **Cuentas y accesos** | Registro con email y contraseña; acceso a cada proyecto como **Administrador**, **Miembro** o **Seguidor** (solo lectura). Invitación por email o con **enlace de invitación** (para WhatsApp/correo, con rol y caducidad). **Mi cuenta**: cambiar nombre, email y contraseña, ver los dispositivos con sesión abierta y cerrarlos, códigos de recuperación de un solo uso y eliminar la cuenta. «¿Olvidaste tu contraseña?» con un código de recuperación o uno que genere el administrador del servidor. Bloqueo temporal tras 8 intentos fallidos. |
 | **Sincronización** | Local primero: todo se guarda en el dispositivo y se sincroniza en segundo plano (cada 15 s, al volver la conexión y al editar). Indicador de estado y cambios pendientes. Los comentarios simultáneos se fusionan y los números de tarea duplicados se renumeran. |
+| **Interfaz** | Tema oscuro por defecto (claro o el del sistema en Ajustes › Apariencia). En el móvil, menú lateral **☰** con las secciones y accesos a tareas abiertas, vencidas, «mis tareas» y todas (con su número); botón flotante **+**. Planos en **carpetas desplegables** con miniaturas y menú ⋮ por carpeta. Visor con barra superior (plano, capas 👁, menú ⋮), **barra vertical de herramientas** a la derecha (tarea, foto, anotar, deshacer/rehacer; se puede plegar) y la versión del plano abajo a la izquierda (tócala para comparar). Al anotar, las herramientas se agrupan y despliegan a la izquierda (dibujo, formas, medición, color y grosor). |
 | **PWA** | Instalable en el móvil como app y utilizable sin conexión. |
 
 ## Cómo ejecutarla
@@ -93,7 +94,8 @@ js/photoannotate.js     Anotaciones sobre fotos (editor a pantalla completa)
 js/camera.js            Cámara integrada con vista previa en directo
 js/forms.js             Partes: plantillas incluidas, creación, resumen e impresión
 js/signature.js         Firma con el dedo
-js/ui.js                Utilidades de interfaz (modales, avisos, formato)
+js/ui.js                Utilidades de interfaz (modales, avisos, formato, tema)
+js/icons.js             Iconos de línea (SVG) de la navegación y el visor
 js/views/               Vistas: auth, projects, dashboard, plans, viewer, tasks, taskDetail, forms, formDetail, templateEditor, team, settings
 server/app.js           API HTTP (cuentas, permisos, sincronización, archivos) y servidor de la app
 server/store.js         Esquema y consultas SQLite

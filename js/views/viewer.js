@@ -1,5 +1,5 @@
 import { db, STATUSES, statusOf, saveTask, fileUrl, isOverdue, deleteFile, uid } from '../db.js';
-import { esc, toast, avatar, fmtDate, userName, modal, ICON_PHOTO_PIN } from '../ui.js';
+import { esc, toast, avatar, fmtDate, userName, modal } from '../ui.js';
 import { openTaskDrawer, newTaskForm } from './taskDetail.js';
 import { canEdit } from '../sync.js';
 import { createPdfLayer, pdfPageWidthMm } from '../hires.js';
@@ -9,10 +9,21 @@ import { createMarkupLayer, MARKUP_TOOLS, MARKUP_COLORS, MARKUP_WIDTHS } from '.
 import { openExportDialog } from '../exportplan.js';
 import { normPath, prettyPath } from '../folders.js';
 import { createLoupe } from '../loupe.js';
+import { icon } from '../icons.js';
 
 const MIN_SCALE = 0.05;
 const TAP_TOLERANCE = 6;
 const LONG_PRESS_MS = 450;
+
+const TOOL = Object.fromEntries(MARKUP_TOOLS.map((t) => [t.id, t]));
+const railTool = (id) => `<button class="rail-btn" data-tool="${id}" title="${TOOL[id].n}" aria-label="${TOOL[id].n}">${TOOL[id].i}</button>`;
+const RAIL_GROUPS = { draw: ['pen', 'marker', 'eraser'], shapes: ['line', 'arrow', 'rect', 'ellipse', 'cloud'], measure: ['measure', 'path', 'area', 'calibrate'] };
+/** Botón de la barra que despliega a su izquierda las herramientas de un grupo (muestra la última usada). */
+const railGroup = (id, label, tools) => `
+  <div class="rail-group" data-group="${id}">
+    <button class="rail-btn" data-group-btn="${id}" title="${label}" aria-label="${label}">${TOOL[tools[0]].i}</button>
+    <div class="flyout">${tools.map((t) => `<button class="markup-tool" data-tool="${t}" title="${TOOL[t].n}" aria-label="${TOOL[t].n}">${TOOL[t].i}</button>`).join('')}</div>
+  </div>`;
 
 export async function renderViewer(view, ctx, sheetId, params) {
   const sheet = ctx.sheet(sheetId);
@@ -40,36 +51,29 @@ export async function renderViewer(view, ctx, sheetId, params) {
   view.innerHTML = `
     <div class="viewer">
       <div class="viewer-toolbar">
-        <a class="icon-btn" href="#/p/${ctx.project.id}/plans${normPath(sheet.folder) ? `?f=${encodeURIComponent(normPath(sheet.folder))}` : ''}" title="Volver a la carpeta del plano" aria-label="Volver">←</a>
+        <a class="icon-btn" href="#/p/${ctx.project.id}/plans${normPath(sheet.folder) ? `?f=${encodeURIComponent(normPath(sheet.folder))}` : ''}" title="Volver a la carpeta del plano" aria-label="Volver">${icon('back')}</a>
         <select id="sheet-switch" class="sheet-switch" aria-label="Cambiar de plano">
           ${sheetOptions(ctx, sheet.id)}
         </select>
-        <button class="icon-btn filters-toggle" id="filters-toggle" title="Filtrar pines del plano" aria-label="Filtros" aria-expanded="false">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
-        </button>
-        <div class="status-filters" role="group" aria-label="Filtrar por estado">
-          ${STATUSES.map((s) => `<button class="chip active" data-filter="${s.id}" style="--c:${s.color}" title="${s.label}">${s.short}</button>`).join('')}
-          <button class="chip active" id="filter-photos" style="--c:#0f172a" title="Mostrar u ocultar las fotos">Fotos</button>
+        <button class="icon-btn" id="filters-toggle" title="Qué mostrar en el plano" aria-label="Capas y filtros" aria-expanded="false">${icon('eye')}</button>
+        <button class="icon-btn" id="viewer-more" title="Más opciones" aria-label="Más opciones" aria-expanded="false">${icon('more')}</button>
+        <div class="viewer-pop status-filters" role="group" aria-label="Qué mostrar en el plano">
+          <p class="pop-title">Tareas por estado</p>
+          <div class="pop-chips">
+            ${STATUSES.map((s) => `<button class="chip active" data-filter="${s.id}" style="--c:${s.color}" title="${s.label}">${s.label}</button>`).join('')}
+          </div>
+          <p class="pop-title">Capas</p>
+          <div class="pop-chips">
+            <button class="chip active" id="filter-photos" style="--c:#3f8cff" title="Mostrar u ocultar las fotos">Fotos</button>
+            <button class="chip active" id="markup-visible" style="--c:#e11d48" title="Ocultar anotaciones" aria-pressed="true">Anotaciones</button>
+          </div>
         </div>
-        <span class="spacer"></span>
-        <button class="btn write photo-btn" id="photo-mode" title="Añadir fotos en un punto del plano">${ICON_PHOTO_PIN}<span>Foto</span></button>
-        <button class="btn write" id="markup-mode" title="Dibujar y escribir sobre el plano" aria-label="Anotar"><span aria-hidden="true">✎</span><span class="btn-label">Anotar</span></button>
-        <button class="icon-btn write" id="hist-undo" title="Deshacer la última acción" aria-label="Deshacer" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
-        <button class="icon-btn write" id="hist-redo" title="Rehacer" aria-label="Rehacer" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
-        <button class="icon-btn" id="markup-visible" title="Ocultar anotaciones" aria-label="Mostrar u ocultar anotaciones" aria-pressed="true">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
-        ${versions.length ? '<button class="btn" id="compare-btn" title="Comparar con versiones anteriores" aria-label="Comparar versiones"><span aria-hidden="true">⇄</span><span class="btn-label">Comparar</span></button>' : ''}
-        <button class="btn btn-primary write" id="add-mode">＋ Tarea</button>
-        <div class="zoom-group">
-          <button class="icon-btn" id="zoom-out" aria-label="Alejar">−</button>
-          <button class="icon-btn" id="zoom-fit" aria-label="Ajustar" title="Ajustar a pantalla">⤢</button>
-          <button class="icon-btn" id="zoom-in" aria-label="Acercar">＋</button>
+        <div class="viewer-pop viewer-menu" id="viewer-menu" role="menu">
+          <button class="action-item" id="toggle-list" role="menuitem">${icon('list')}<span>Lista de tareas del plano</span></button>
+          ${versions.length ? `<button class="action-item" id="compare-btn" role="menuitem">${icon('compare')}<span>Comparar versiones</span></button>` : ''}
+          <button class="action-item" id="export-pdf" role="menuitem">${icon('download')}<span>Descargar PDF con anotaciones</span></button>
+          <button class="action-item" id="zoom-fit" role="menuitem">${icon('fit')}<span>Ajustar a la pantalla</span></button>
         </div>
-        <button class="icon-btn" id="export-pdf" title="Descargar el plano en PDF con anotaciones" aria-label="Descargar PDF">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-        </button>
-        <button class="icon-btn" id="toggle-list" title="Lista de tareas" aria-label="Lista de tareas">☰</button>
       </div>
       <div class="viewer-main">
         <div class="viewer-canvas" id="canvas">
@@ -78,6 +82,23 @@ export async function renderViewer(view, ctx, sheetId, params) {
             <div class="pins" id="pins"></div>
           </div>
           <div class="viewer-hint hidden" id="hint"></div>
+          <div class="tool-rail" id="view-rail" role="toolbar" aria-label="Herramientas del plano">
+            <div class="rail-tools">
+              <button class="rail-btn write" id="add-mode" title="Crear una tarea en el plano" aria-label="Nueva tarea">${icon('pin')}</button>
+              <button class="rail-btn write" id="photo-mode" title="Añadir fotos en un punto del plano" aria-label="Foto">${icon('camera')}</button>
+              <button class="rail-btn write" id="markup-mode" title="Dibujar, escribir y medir sobre el plano" aria-label="Anotar">${icon('pencil')}</button>
+              <span class="rail-sep write"></span>
+              <button class="rail-btn write" id="hist-undo" title="Deshacer la última acción" aria-label="Deshacer" disabled>${icon('undo')}</button>
+              <button class="rail-btn write" id="hist-redo" title="Rehacer" aria-label="Rehacer" disabled>${icon('redo')}</button>
+              <span class="rail-sep desk-only"></span>
+              <button class="rail-btn desk-only" id="zoom-in" title="Acercar" aria-label="Acercar">${icon('zoomIn')}</button>
+              <button class="rail-btn desk-only" id="zoom-out" title="Alejar" aria-label="Alejar">${icon('zoomOut')}</button>
+            </div>
+            <button class="rail-btn rail-toggle" id="rail-toggle" title="Plegar la barra" aria-label="Plegar o desplegar la barra de herramientas" aria-expanded="true">${icon('chevronDown')}</button>
+          </div>
+          <button class="version-chip" id="version-chip" ${versions.length ? '' : 'disabled'} title="${versions.length ? 'Comparar con versiones anteriores' : 'Versión actual del plano'}">
+            <span>v${sheet.version || 1}${sheet.uploadedAt || sheet.createdAt ? ` · ${vDate.format(sheet.uploadedAt || sheet.createdAt)}` : ''}</span>${versions.length ? icon('chevronUp', 18) : ''}
+          </button>
           ${versions.length ? `
           <div class="compare-bar hidden" id="compare-bar" role="toolbar" aria-label="Comparar versiones">
             <label class="compare-pick">v${sheet.version || 1} (actual) frente a
@@ -104,26 +125,33 @@ export async function renderViewer(view, ctx, sheetId, params) {
               <button class="btn btn-primary btn-sm" id="sel-done">Listo</button>
             </div>
           </div>
-          <div class="markup-bar hidden" id="markup-bar" role="toolbar" aria-label="Herramientas de anotación">
-            <div class="markup-group">
+          <div class="markup-layer hidden" id="markup-bar" role="toolbar" aria-label="Herramientas de anotación">
+            <div class="tool-rail markup-rail">
+              <div class="rail-tools">
+                ${railTool('hand')}
+                ${railGroup('draw', 'Lápiz, rotulador y borrador', ['pen', 'marker', 'eraser'])}
+                ${railGroup('shapes', 'Líneas y formas', ['line', 'arrow', 'rect', 'ellipse', 'cloud'])}
+                ${railTool('text')}
+                ${railGroup('measure', 'Medir y calibrar', ['measure', 'path', 'area', 'calibrate'])}
+                ${railTool('clip')}
+                <div class="rail-group" data-group="style">
+                  <button class="rail-btn rail-color" data-group-btn="style" title="Color y grosor" aria-label="Color y grosor"><span class="color-dot"></span></button>
+                  <div class="flyout flyout-style">
+                    <div class="flyout-colors">${MARKUP_COLORS.map((c) => `<button class="markup-color" data-color="${c.c}" style="--mc:${c.c}" title="${c.n}" aria-label="Color ${c.n}"></button>`).join('')}</div>
+                    <div class="flyout-widths">${MARKUP_WIDTHS.map((w) => `<button class="markup-width" data-width="${w.w}" title="${w.n}" aria-label="Grosor ${w.n}"><span style="height:${w.w + 1}px"></span></button>`).join('')}</div>
+                  </div>
+                </div>
+                <span class="rail-sep"></span>
+                <button class="rail-btn" id="markup-undo" title="Deshacer" aria-label="Deshacer">${icon('undo')}</button>
+                <button class="rail-btn" id="markup-redo" title="Rehacer" aria-label="Rehacer">${icon('redo')}</button>
+              </div>
+              <button class="rail-btn rail-done" id="markup-done" title="Terminar de anotar" aria-label="Listo">${icon('check')}</button>
+            </div>
+            <div class="markup-ctx">
               <button class="scale-chip" id="scale-chip" title="Escala del plano para las mediciones">Sin escala</button>
               <button class="btn btn-sm btn-primary hidden" id="markup-finish">Terminar</button>
               <button class="btn btn-sm hidden clip-btn" id="clip-cut" title="Borra el resaltado que queda dentro del recuadro">✂ Borrar dentro</button>
               <button class="btn btn-sm hidden clip-btn" id="clip-keep" title="Deja solo el resaltado que queda dentro del recuadro">⬚ Dejar solo dentro</button>
-            </div>
-            <div class="markup-group">
-              ${MARKUP_TOOLS.map((t) => `<button class="markup-tool" data-tool="${t.id}" title="${t.n}" aria-label="${t.n}">${t.i}</button>`).join('')}
-            </div>
-            <div class="markup-group">
-              ${MARKUP_COLORS.map((c) => `<button class="markup-color" data-color="${c.c}" style="--mc:${c.c}" title="${c.n}" aria-label="Color ${c.n}"></button>`).join('')}
-            </div>
-            <div class="markup-group">
-              ${MARKUP_WIDTHS.map((w) => `<button class="markup-width" data-width="${w.w}" title="${w.n}" aria-label="Grosor ${w.n}"><span style="height:${w.w + 1}px"></span></button>`).join('')}
-            </div>
-            <div class="markup-group">
-              <button class="markup-tool" id="markup-undo" title="Deshacer" aria-label="Deshacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
-              <button class="markup-tool" id="markup-redo" title="Rehacer" aria-label="Rehacer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
-              <button class="btn btn-primary btn-sm" id="markup-done">Listo</button>
             </div>
           </div>
         </div>
@@ -263,7 +291,9 @@ export async function renderViewer(view, ctx, sheetId, params) {
       syncMarkupBar();
     }
     addBtn.classList.toggle('btn-active', mode === 'add');
-    addBtn.textContent = mode === 'add' ? 'Cancelar' : '＋ Tarea';
+    addBtn.title = mode === 'add' ? 'Cancelar' : 'Crear una tarea en el plano';
+    view.querySelector('#view-rail').classList.toggle('hidden', mode === 'draw');
+    closeFlyouts();
     if (mode === 'add') showHint('Toca el plano donde quieres crear la tarea');
     else if (mode === 'photo') showHint('Toca el punto del plano donde tomas la foto');
     else if (mode === 'place') {
@@ -299,6 +329,10 @@ export async function renderViewer(view, ctx, sheetId, params) {
 
   // ---------- Anotaciones ----------
   const markupBar = view.querySelector('#markup-bar');
+  const lastOfGroup = {};
+  function closeFlyouts() {
+    view.querySelectorAll('.rail-group.open').forEach((g) => g.classList.remove('open'));
+  }
   const markupBtn = view.querySelector('#markup-mode');
   const currentSheet = () => ctx.sheet(sheet.id) || sheet;
   const markup = createMarkupLayer({
@@ -353,6 +387,14 @@ export async function renderViewer(view, ctx, sheetId, params) {
     markupBar.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === s.tool));
     markupBar.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === s.color));
     markupBar.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', Number(b.dataset.width) === s.width));
+    // Grupos de la barra: muestran la herramienta elegida (o la última usada del grupo)
+    for (const [g, tools] of Object.entries(RAIL_GROUPS)) {
+      if (tools.includes(s.tool)) lastOfGroup[g] = s.tool;
+      const btn = markupBar.querySelector(`[data-group-btn="${g}"]`);
+      btn.innerHTML = TOOL[lastOfGroup[g] || tools[0]].i;
+      btn.classList.toggle('active', tools.includes(s.tool));
+    }
+    markupBar.querySelector('.color-dot').style.background = s.color;
     view.querySelector('#markup-undo').disabled = !hist.undo.length;
     view.querySelector('#markup-redo').disabled = !hist.redo.length;
     if (markup.selected()) return;
@@ -383,8 +425,23 @@ export async function renderViewer(view, ctx, sheetId, params) {
   markupBar.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = async () => {
     await markup.finishMulti();
     markup.setTool(b.dataset.tool);
+    closeFlyouts();
     syncMarkupBar();
   }));
+  // Grupos: el primer toque elige la última herramienta usada del grupo y abre las demás a la izquierda
+  markupBar.querySelectorAll('[data-group-btn]').forEach((b) => (b.onclick = async () => {
+    const g = b.dataset.groupBtn;
+    const wrap = b.closest('.rail-group');
+    const wasOpen = wrap.classList.contains('open');
+    closeFlyouts();
+    if (RAIL_GROUPS[g] && !RAIL_GROUPS[g].includes(markup.settings.tool)) {
+      await markup.finishMulti();
+      markup.setTool(lastOfGroup[g] || RAIL_GROUPS[g][0]);
+      syncMarkupBar();
+    }
+    if (!wasOpen) wrap.classList.add('open');
+  }));
+  markupBar.querySelectorAll('[data-color], [data-width]').forEach((b) => b.addEventListener('click', closeFlyouts));
   view.querySelector('#markup-finish').onclick = async () => { await markup.finishMulti(); syncMarkupBar(); };
   /** Recuadro de recorte inicial: en el centro de la zona visible del plano. */
   function startClipWindow() {
@@ -499,6 +556,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
     markup.setVisible(markupsVisible);
     visBtn.setAttribute('aria-pressed', String(markupsVisible));
     visBtn.classList.toggle('off', !markupsVisible);
+    visBtn.classList.toggle('active', markupsVisible);
     visBtn.title = markupsVisible ? 'Ocultar anotaciones' : 'Mostrar anotaciones';
   };
   visBtn.onclick = () => {
@@ -763,11 +821,36 @@ export async function renderViewer(view, ctx, sheetId, params) {
   view.querySelector('#zoom-out').onclick = () => zoomCenter(1 / 1.4);
   view.querySelector('#zoom-fit').onclick = fit;
   view.querySelector('#export-pdf').onclick = () => openExportDialog(ctx, [currentSheet()]);
-  view.querySelector('#filters-toggle').onclick = (e) => {
-    const tb = view.querySelector('.viewer-toolbar');
-    const open = tb.classList.toggle('show-filters');
-    e.currentTarget.setAttribute('aria-expanded', String(open));
+  // Ventanas de la barra superior: capas/filtros (ojo) y menú (⋮)
+  const toolbar = view.querySelector('.viewer-toolbar');
+  const setPop = (cls) => {
+    for (const [c, id] of [['show-filters', '#filters-toggle'], ['show-menu', '#viewer-more']]) {
+      const on = c === cls && !toolbar.classList.contains(c);
+      toolbar.classList.toggle(c, on);
+      view.querySelector(id).setAttribute('aria-expanded', String(on));
+    }
   };
+  view.querySelector('#filters-toggle').onclick = () => setPop('show-filters');
+  view.querySelector('#viewer-more').onclick = () => setPop('show-menu');
+  view.querySelector('#viewer-menu').addEventListener('click', (e) => e.target.closest('button') && setPop(null));
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.tool-rail, .markup-ctx, .markup-bar, .version-chip, .compare-bar, .viewer-hint')) return;
+    setPop(null);
+    closeFlyouts();
+  }, true);
+  // Barra lateral: se puede plegar para ver más plano (se recuerda en este dispositivo)
+  const viewRail = view.querySelector('#view-rail');
+  const railToggle = view.querySelector('#rail-toggle');
+  const setRailCollapsed = (c) => {
+    viewRail.classList.toggle('collapsed', c);
+    railToggle.innerHTML = icon(c ? 'chevronUp' : 'chevronDown');
+    railToggle.setAttribute('aria-expanded', String(!c));
+    railToggle.title = c ? 'Mostrar las herramientas' : 'Plegar la barra';
+    try { localStorage.setItem('obraplan.railCollapsed', c ? '1' : '0'); } catch { /* sin almacenamiento */ }
+  };
+  try { if (localStorage.getItem('obraplan.railCollapsed') === '1') setRailCollapsed(true); } catch { /* sin almacenamiento */ }
+  railToggle.onclick = () => setRailCollapsed(!viewRail.classList.contains('collapsed'));
+  for (const el of [viewRail, view.querySelector('#version-chip')]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
   view.querySelector('#toggle-list').onclick = () => {
     state.listOpen = !state.listOpen;
     drawPins();
@@ -1013,6 +1096,7 @@ export async function renderViewer(view, ctx, sheetId, params) {
   }
   if (compareBar) {
     view.querySelector('#compare-btn').onclick = () => (compare.active() ? closeCompare() : openCompare(versions[0].version));
+    view.querySelector('#version-chip').onclick = () => (compare.active() ? closeCompare() : openCompare(versions[0].version));
     compareBar.addEventListener('pointerdown', (e) => e.stopPropagation());
     compareBar.querySelector('#compare-version').onchange = (e) => openCompare(e.target.value);
     compareBar.querySelectorAll('[data-cmode]').forEach((b) =>

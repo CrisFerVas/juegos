@@ -9,7 +9,7 @@ export function renderTeam(view, ctx) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Equipo</h1><p class="muted">${members.length} persona(s) · ${companies.length} empresa(s)</p></div>
+      <div><h1 class="sec-title">Equipo</h1><p class="muted">${members.length} persona(s) · ${companies.length} empresa(s)</p></div>
       <div class="actions"><button class="btn btn-primary write" id="add">+ Añadir persona</button></div>
     </div>
     ${members.length === 0 ? `

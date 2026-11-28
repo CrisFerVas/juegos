@@ -1,7 +1,7 @@
 // Service worker: permite usar la app sin conexión (los datos ya viven en IndexedDB)
 // y muestra los avisos de tareas pendientes (sincronización periódica en segundo plano).
 importScripts('js/reminders-core.js');
-const CACHE = 'obraplan-v28';
+const CACHE = 'obraplan-v29';
 const SHELL = [
   './',
   'index.html',
@@ -31,6 +31,7 @@ const SHELL = [
   'js/sync.js',
   'js/views/auth.js',
   'js/views/account.js',
+  'js/icons.js',
   'js/views/projects.js',
   'js/views/dashboard.js',
   'js/views/plans.js',
