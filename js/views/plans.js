@@ -107,7 +107,7 @@ export async function renderPlans(view, ctx, params = new URLSearchParams()) {
         <label class="searchbar">${icon('search', 20)}<input type="search" id="q" placeholder="Buscar planos o carpetas" value="${esc(view.dataset.q || '')}" /></label>
         ${ctx.sheets.length ? `<button class="btn" id="export-pdf" title="Descargar planos en PDF con anotaciones">${icon('download', 18)}<span class="btn-label">Descargar PDF</span></button>` : ''}
         ${allPaths.length ? `<button class="btn" id="toggle-all" title="${opened.size ? 'Plegar todas las carpetas' : 'Desplegar todas las carpetas'}">${icon(opened.size ? 'chevronUp' : 'chevronDown', 18)}<span class="btn-label">${opened.size ? 'Plegar todo' : 'Desplegar todo'}</span></button>` : ''}
-        <button class="btn write hide-sm" id="new-folder">${icon('folderPlus', 18)} Carpeta</button>
+        <button class="btn write" id="new-folder" title="Nueva carpeta" aria-label="Nueva carpeta">${icon('folderPlus', 18)}<span class="btn-label">Carpeta</span></button>
         <button class="btn btn-primary write hide-sm" id="upload">${icon('upload', 18)} Subir planos</button>
       </div>
     </div>
@@ -119,7 +119,10 @@ export async function renderPlans(view, ctx, params = new URLSearchParams()) {
         </a>`).join('')}</div>` : ''}
       ${shown.length ? `<h2 class="folder-title">Planos <span class="muted small">${shown.length}</span></h2>${sheetGrid(shown)}` : ''}
       ${!shown.length && !searchFolders.length ? '<div class="empty"><p class="muted">No hay planos ni carpetas que coincidan.</p></div>' : ''}` : `
-      <div class="folder-list">${rootFolders.map(folderCard).join('')}</div>
+      <div class="folder-list">
+        ${rootFolders.map(folderCard).join('')}
+        ${allPaths.length || ctx.sheets.length ? `<button class="folder-add write" id="add-folder">${icon('folderPlus')}<span>Nueva carpeta</span></button>` : ''}
+      </div>
       ${rootSheets.length ? `${rootFolders.length ? '<h2 class="folder-title">Sin carpeta</h2>' : ''}${sheetGrid(rootSheets)}` : ''}
       ${!ctx.sheets.length && !allPaths.length ? `
       <div class="empty dropzone" id="drop">
@@ -179,6 +182,7 @@ export async function renderPlans(view, ctx, params = new URLSearchParams()) {
   view.querySelector('#upload').addEventListener('click', () => pickAndUpload());
   view.querySelector('#upload2')?.addEventListener('click', () => pickAndUpload());
   view.querySelector('#new-folder').addEventListener('click', () => newFolderDialog(ctx, ''));
+  view.querySelector('#add-folder')?.addEventListener('click', () => newFolderDialog(ctx, ''));
   view.querySelector('#plans-fab').addEventListener('click', () =>
     fabMenu([
       { icon: 'upload', label: 'Subir planos', run: () => pickAndUpload() },

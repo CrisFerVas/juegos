@@ -201,6 +201,8 @@ ancladas, anotaciones, mediciones, comparación de versiones, fotos en obra, par
     (cierra menús) debe ignorar los toques sobre las barras, o se pierde el clic en el desplegable.
 32. Al abrir un proyecto se entra en **Planos** (no en Panel): enlaces de la lista de proyectos a `#/p/:id/plans` y
     sección por defecto `plans` en `app.js` (también para `#/p/:id` sin sección, p. ej. tras unirse con una invitación).
+33. Crear carpeta a la vista en Planos (el usuario no encontraba la opción del botón +): recuadro «Nueva carpeta» al final de
+    la lista de carpetas (`#add-folder`) y botón de carpeta junto al buscador también en el móvil (`#new-folder`).
 
 ## Pendiente / ideas
 - **Paso 2 del recorte**: dentro del recuadro, detectar automáticamente los bordes del ducto (render del PDF de
